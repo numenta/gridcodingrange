@@ -24,8 +24,8 @@
  * Implementations for GridUniqueness.hpp
  */
 
-#include <nupic/experimental/GridUniqueness.hpp>
-#include <nupic/utils/Log.hpp>
+#include "GridUniqueness.hpp"
+#include <nta_logging.hpp>
 
 #include <math.h>
 #include <signal.h>

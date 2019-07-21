@@ -1,6 +1,5 @@
 /* ---------------------------------------------------------------------
- * Numenta Platform for Intelligent Computing (NuPIC)
- * Copyright (C) 2018, Numenta, Inc.  Unless you have an agreement
+ * Copyright (C) 2019, Numenta, Inc.  Unless you have an agreement
  * with Numenta, Inc., for a separate license for this software code, the
  * following terms and conditions apply:
  *
@@ -24,15 +23,14 @@
  * Unit tests for Grid Uniqueness
  */
 
-#include <nupic/utils/Log.hpp>
+#include <nta_logging.hpp>
 
-#include <nupic/experimental/GridUniqueness.hpp>
-#include "gtest/gtest.h"
+#include "GridUniqueness.hpp"
+#include <gtest/gtest.h>
 
 #include <vector>
 #include <cmath>
 
-using namespace nupic;
 using namespace nupic::experimental::grid_uniqueness;
 using std::vector;
 using std::pair;

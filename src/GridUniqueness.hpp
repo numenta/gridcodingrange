@@ -27,7 +27,6 @@
 #ifndef NTA_GRID_UNIQUENESS_HPP
 #define NTA_GRID_UNIQUENESS_HPP
 
-#include <nupic/types/Types.hpp>
 #include <vector>
 #include <utility>
 
@@ -65,12 +64,12 @@ namespace nupic {
        * true if grid code zero is found, false otherwise.
        */
       bool findGridCodeZero(
-        const std::vector<std::vector<std::vector<Real64>>>& domainToPlaneByModule,
-        const std::vector<std::vector<std::vector<Real64>>>& latticeBasisByModule,
-        const std::vector<Real64>& x0,
-        const std::vector<Real64>& dims,
-        Real64 readoutResolution,
-        std::vector<Real64>* pointWithGridCodeZero = nullptr);
+        const std::vector<std::vector<std::vector<double>>>& domainToPlaneByModule,
+        const std::vector<std::vector<std::vector<double>>>& latticeBasisByModule,
+        const std::vector<double>& x0,
+        const std::vector<double>& dims,
+        double readoutResolution,
+        std::vector<double>* pointWithGridCodeZero = nullptr);
 
       /**
        * Given a set of grid cell module parameters, determines the diameter of
@@ -129,12 +128,12 @@ namespace nupic {
        * - The diameter of the hypercube that contains no collisions.
        * - A point just outside this hypercube that collides with the origin.
        */
-      std::pair<Real64,std::vector<Real64>> computeGridUniquenessHypercube(
-        const std::vector<std::vector<std::vector<Real64>>>& domainToPlaneByModule,
-        const std::vector<std::vector<std::vector<Real64>>>& latticeBasisByModule,
-        Real64 readoutResolution,
-        Real64 ignoredCenterDiameter,
-        Real64 pingInterval=10.0);
+      std::pair<double,std::vector<double>> computeGridUniquenessHypercube(
+        const std::vector<std::vector<std::vector<double>>>& domainToPlaneByModule,
+        const std::vector<std::vector<std::vector<double>>>& latticeBasisByModule,
+        double readoutResolution,
+        double ignoredCenterDiameter,
+        double pingInterval=10.0);
 
       /**
        * Compute the sidelength of the smallest hypercube that encloses the
@@ -172,12 +171,12 @@ namespace nupic {
        * The sidelength of this hypercube. Returns -1.0 if a surface can't be
        * found (i.e. if upperBound is reached.)
        */
-      Real64 computeBinSidelength(
-        const std::vector<std::vector<std::vector<Real64>>>& domainToPlaneByModule,
-        Real64 readoutResolution,
-        Real64 resultPrecision,
-        Real64 upperBound = 2048.0,
-        Real64 timeout = -1.0);
+      double computeBinSidelength(
+        const std::vector<std::vector<std::vector<double>>>& domainToPlaneByModule,
+        double readoutResolution,
+        double resultPrecision,
+        double upperBound = 2048.0,
+        double timeout = -1.0);
 
       /**
        * Like computeBinSidelength, but it computes a hyperrectangle rather than
@@ -214,12 +213,12 @@ namespace nupic {
        * The dimensions of this hyperrectangle. Returns an empty vector if a
        * surface can't be found (i.e. if upperBound is reached.)
        */
-      std::vector<Real64> computeBinRectangle(
-        const std::vector<std::vector<std::vector<Real64>>>& domainToPlaneByModule,
-        Real64 readoutResolution,
-        Real64 resultPrecision,
-        Real64 upperBound = 2048.0,
-        Real64 timeout = -1.0);
+      std::vector<double> computeBinRectangle(
+        const std::vector<std::vector<std::vector<double>>>& domainToPlaneByModule,
+        double readoutResolution,
+        double resultPrecision,
+        double upperBound = 2048.0,
+        double timeout = -1.0);
     }
   }
 }
