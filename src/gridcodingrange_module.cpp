@@ -53,7 +53,7 @@ computeGridUniquenessHypercube(
     double ignoredCenterDiameter,
     double pingInterval = 10.0)
 {
-    return nupic::experimental::grid_uniqueness::computeGridUniquenessHypercube(
+    return gridcodingrange::computeGridUniquenessHypercube(
         copyArray3D(domainToPlaneByModule), copyArray3D(latticeBasisByModule),
         phaseResolution, ignoredCenterDiameter, pingInterval);
 }
@@ -66,7 +66,7 @@ computeBinSidelength(
     double upperBound = 1000.0,
     double timeout = -1.0)
 {
-    return nupic::experimental::grid_uniqueness::computeBinSidelength(
+    return gridcodingrange::computeBinSidelength(
         copyArray3D(domainToPlaneByModule), readoutResolution, resultPrecision,
         upperBound, timeout);
 }
@@ -79,7 +79,7 @@ computeBinRectangle(
     double upperBound = 1000.0,
     double timeout = -1.0)
 {
-    return nupic::experimental::grid_uniqueness::computeBinRectangle(
+    return gridcodingrange::computeBinRectangle(
         copyArray3D(domainToPlaneByModule), readoutResolution, resultPrecision,
         upperBound, timeout);
 }

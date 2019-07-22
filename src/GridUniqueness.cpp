@@ -1591,7 +1591,7 @@ void optimizeMatrices(vector<vector<vector<double>>> *domainToPlaneByModule,
   }
 }
 
-bool nupic::experimental::grid_uniqueness::findGridCodeZero(
+bool gridcodingrange::findGridCodeZero(
   const vector<vector<vector<double>>>& domainToPlaneByModule,
   const vector<vector<vector<double>>>& latticeBasisByModule,
   const vector<double>& x0,
@@ -1654,7 +1654,7 @@ bool nupic::experimental::grid_uniqueness::findGridCodeZero(
 }
 
 pair<double,vector<double>>
-nupic::experimental::grid_uniqueness::computeGridUniquenessHypercube(
+gridcodingrange::computeGridUniquenessHypercube(
   const vector<vector<vector<double>>>& domainToPlaneByModule,
   const vector<vector<vector<double>>>& latticeBasisByModule,
   double readoutResolution,
@@ -2166,7 +2166,7 @@ bool findGridCodeZeroAtRadius(
 }
 
 double
-nupic::experimental::grid_uniqueness::computeBinSidelength(
+gridcodingrange::computeBinSidelength(
   const vector<vector<vector<double>>>& domainToPlaneByModule,
   double readoutResolution,
   double resultPrecision,
@@ -2363,7 +2363,7 @@ vector<double> squeezeRectangleToBin(
 }
 
 vector<double>
-nupic::experimental::grid_uniqueness::computeBinRectangle(
+gridcodingrange::computeBinRectangle(
   const vector<vector<vector<double>>>& domainToPlaneByModule,
   double readoutResolution,
   double resultPrecision,
