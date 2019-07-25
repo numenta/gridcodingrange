@@ -20,13 +20,14 @@
 # ----------------------------------------------------------------------
 
 import argparse
+import math
 import os
 import pickle
 import re
 
 import numpy as np
 
-from gridcodingrange import computeGridUniquenessHypercube
+from gridcodingrange import computeCodingRange
 
 
 def create_L(m, theta=np.pi/3.):
@@ -83,22 +84,30 @@ def measureSidelengths(folderPath):
                               for k in ks
                               if 2*m >= k]
 
-        unique_sidelengths = np.full((len(phase_resolutions),
-                                  len(ms),
-                                  len(ks)),
-                                 np.nan, dtype="float")
+        max_scale_factors = np.full((len(phase_resolutions),
+                                     len(ms),
+                                     len(ks)),
+                                    np.nan, dtype="float")
 
         for phr, m, k in param_combinations:
             A_ = everyA[(phr, m, k)]
             L_ = L[:m]
 
-            unique_sidelength, _ = computeGridUniquenessHypercube(
-                A_, L_, phr, ignoredCenterDiameter=0.51, pingInterval=100.0)
+            scaledbox = np.ones(int(math.ceil(k)), dtype='float')
+            partial_final_dim = k - math.floor(k)
+            if partial_final_dim > 0:
+                scaledbox[-1] = partial_final_dim
 
-            unique_sidelengths[phase_resolutions.index(phr),
-                               ms.index(m), ks.index(k)] = unique_sidelength
+            ignorebox = 0.51*np.ones(int(math.ceil(k)), dtype='float')
 
-        result_dict["width"] = unique_sidelengths
+            max_scale_factor, _ = computeCodingRange(
+                A_, L_, scaledbox, ignorebox, phr,
+                pingInterval=100.0)
+
+            max_scale_factors[phase_resolutions.index(phr),
+                              ms.index(m), ks.index(k)] = max_scale_factor
+
+        result_dict["width"] = max_scale_factors
 
         with open(outFilePath, "wb") as fout:
             print("Saving {}".format(outFilePath))

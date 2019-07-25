@@ -1,6 +1,6 @@
 /* ---------------------------------------------------------------------
  * Numenta Platform for Intelligent Computing (NuPIC)
- * Copyright (C) 2018, Numenta, Inc.  Unless you have an agreement
+ * Copyright (C) 2018-2019, Numenta, Inc.  Unless you have an agreement
  * with Numenta, Inc., for a separate license for this software code, the
  * following terms and conditions apply:
  *
@@ -70,18 +70,15 @@ namespace gridcodingrange
       std::vector<double> *pointWithGridCodeZero = nullptr);
 
   /**
-   * Given a set of grid cell module parameters, determines the diameter of the
-   * k-dimensional cube in which every location has a unique grid cell
-   * representation.
+   * Given a set of grid cell module parameters, scale a k-dimensional box until
+   * it reaches a point with the same grid cell representation as the origin.
    *
-   * This function iteratively builds out a larger hypercube out of smaller
-   * hyperrectangles, relying on findGridCodeZero to analyze each
-   * hyperrectangle. The hypercube expands outward from the origin, forming a
-   * larger hypercube that contains positive and negative numbers. After the
-   * nearest grid code zero is found, we divide the hypercube in half to get a
-   * hypercube in which every location is guaranteed to be unique (rather than
-   * just being different from the starting location). The returned diameter is
-   * the diameter of this smaller hypercube.
+   * This function expands scaledboxes outward from the origin, one in each
+   * high-dimensional quadrant, by multiplying it with a scaling factor and
+   * iteratively building out the larger box out of smaller boxes, relying on
+   * findGridCodeZero to analyze each box. When the expanding box collides with
+   * a point that has the same grid cell representation as the origin, the
+   * scaling factor from before the collision is returned.
    *
    * Each grid cell module is specified by a pair of matrices. The first one
    * projects a k-dimensional point to a 2D plane, and the second matrix
@@ -94,8 +91,7 @@ namespace gridcodingrange
    * readout resolution, but a typical way is to use unit vectors as lattice
    * basis vectors, use a plane projection that normalizes distances so that 1
    * unit is 1 "scale", and then set the readout resolution to some number in
-   * the range (0,
-   * 1) so that it is measured in units of "scales".
+   * the range (0, 1) so that it is measured in units of "scales".
    *
    * @param domainToPlaneByModule
    * A list of 2*k matrices, one per module. The matrix converts from a point in
@@ -106,15 +102,44 @@ namespace gridcodingrange
    * vectors for a lattice, specifying which points on the plane have equivalent
    * location representations in this module.
    *
+   * @param scaledbox
+   * The box that is scaled outward in every high-dimensional quadrant.
+   *
+   * @param ignorebox
+   * The box that should be ignored because it contains the *actual* grid code
+   * zero. This hypercube starts at the origin and extends in the positive
+   * direction. It is applied in every high-dimensional quadrant.
+   *
    * @param readoutResolution
    * The precision of readout of this grid code, measured in distance on the
    * plane. For example, if this is 0.2, then all points on the plane are
    * indistinguishable from those in their surrounding +- 0.1 range.
    *
+   * @param pingInterval
+   * How often, in seconds, the function should print its current status. If <=
+   * 0, no printing will occur.
+   *
+   * @return
+   * - The largest tested scaling factor of the scaledbox that contains no
+       collisions.
+   * - A point just outside this scaled scaledbox that collides with the origin.
+   */
+  std::pair<double, std::vector<double>> computeCodingRange(
+      const std::vector<std::vector<std::vector<double>>> &domainToPlaneByModule,
+      const std::vector<std::vector<std::vector<double>>> &latticeBasisByModule,
+      const std::vector<double> &scaledbox,
+      const std::vector<double> &ignorebox,
+      double readoutResolution,
+      double pingInterval = 10.0);
+
+  /**
+   * Calls computeCodingRange with a unit cube scaledBox and cube ignore box.
+   *
    * @param ignoredCenterDiameter
-   * The diameter of the hypercube at the center which should be ignored,
-   * because it contains the *actual* grid code zero. Set this to be
-   * sufficiently large to get away from this actual zero.
+   * The sidelength of the hypercube which should be ignored because it contains
+   * the *actual* grid code zero. This hypercube starts at the origin and
+   * extends in the positive direction. It is applied in every expansion
+   * direction (i.e. in every quadrant/octant/orthant).
    *
    * @param pingInterval
    * How often, in seconds, the function should print its current status. If <=

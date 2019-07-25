@@ -20,6 +20,7 @@
 # ----------------------------------------------------------------------
 
 import argparse
+import math
 import multiprocessing
 import os
 import pickle
@@ -97,7 +98,8 @@ def processCubeQuery(query):
     numDiscardedTimeout = 0
 
     while True:
-        expDict = create_params(m, k, forceOrthogonal, normalizeScales)
+        expDict = create_params(m, int(math.ceil(k)), forceOrthogonal,
+                                normalizeScales)
 
         # Rearrange to make the algorithms faster.
         sortOrder = np.argsort(expDict["S"])[::-1]
@@ -238,7 +240,7 @@ if __name__ == "__main__":
     parser.add_argument("folderName", type=str)
     parser.add_argument("--numTrials", type=int, default=1)
     parser.add_argument("--m", type=int, required=True, nargs="+")
-    parser.add_argument("--k", type=int, required=True, nargs="+")
+    parser.add_argument("--k", type=float, required=True, nargs="+")
     parser.add_argument("--phaseResolution", type=float, default=[0.2], nargs="+")
     parser.add_argument("--allowOblique", action="store_true")
     parser.add_argument("--normalizeScales", action="store_true")

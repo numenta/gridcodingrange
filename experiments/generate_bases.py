@@ -20,6 +20,7 @@
 # ----------------------------------------------------------------------
 
 import argparse
+import math
 import multiprocessing
 import os
 import pickle
@@ -192,7 +193,8 @@ class Scheduler(object):
 
     def queueNewWorkItem(self):
         forceOrthogonal = not self.allowOblique
-        resultDict = create_params(max(self.ms), max(self.ks), forceOrthogonal)
+        resultDict = create_params(max(self.ms), int(math.ceil(max(self.ks))),
+                                   forceOrthogonal)
         resultDict["phase_resolutions"] = self.phaseResolutions
         resultDict["ms"] = self.ms
         resultDict["ks"] = self.ks
@@ -200,7 +202,7 @@ class Scheduler(object):
         A = resultDict["A"]
         S = resultDict["S"]
 
-        queries = (getQuery(A, S, m, k, phr)
+        queries = (getQuery(A, S, m, int(math.ceil(k)), phr)
                    for phr, m, k in self.param_combinations)
         # map_async will convert this to a list if it can't get the length.
         queries = IterableWithLen(queries, len(self.param_combinations))
@@ -284,7 +286,7 @@ if __name__ == "__main__":
     parser.add_argument("folderName", type=str)
     parser.add_argument("--numTrials", type=int, default=1)
     parser.add_argument("--m", type=int, required=True, nargs="+")
-    parser.add_argument("--k", type=int, required=True, nargs="+")
+    parser.add_argument("--k", type=float, required=True, nargs="+")
     parser.add_argument("--phaseResolution", type=float, default=[0.2], nargs="+")
     parser.add_argument("--measureRectangle", action="store_true")
     parser.add_argument("--allowOblique", action="store_true")

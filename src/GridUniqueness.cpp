@@ -1,6 +1,6 @@
 /* ---------------------------------------------------------------------
  * Numenta Platform for Intelligent Computing (NuPIC)
- * Copyright (C) 2018, Numenta, Inc.  Unless you have an agreement
+ * Copyright (C) 2018-2019, Numenta, Inc.  Unless you have an agreement
  * with Numenta, Inc., for a separate license for this software code, the
  * following terms and conditions apply:
  *
@@ -25,6 +25,7 @@
  */
 
 #include "GridUniqueness.hpp"
+#include "box_expansion.hpp"
 #include <nta_logging.hpp>
 
 #include <math.h>
@@ -1298,7 +1299,7 @@ bool findGridCodeZeroHelper(
   }
 }
 
-struct GridUniquenessState {
+struct ExpansionState {
   // Constants (thread-safe)
   const vector<vector<vector<double>>>& domainToPlaneByModule;
   const vector<SquareMatrix2D<double>>& latticeBasisByModule;
@@ -1308,11 +1309,7 @@ struct GridUniquenessState {
   const size_t numDims;
 
   // Task management
-  double baselineRadius;
-  double expansionRadiusGoal;
-  vector<double> expansionProgress;
-  size_t expandingDim;
-  bool positiveExpand;
+  MultiDirectionExpansion expansionEnumerator;
   bool continueExpansion;
 
   // Results
@@ -1324,7 +1321,7 @@ struct GridUniquenessState {
   std::condition_variable& finishedCondition;
   bool finished;
   size_t numActiveThreads;
-  vector<double> threadBaselineRadius;
+  vector<double> threadBaselineFactor;
   vector<vector<double>> threadQueryX0;
   vector<vector<double>> threadQueryDims;
   vector<std::atomic<bool>> threadShouldContinue;
@@ -1352,24 +1349,24 @@ std::string vecs(const vector<T>& v)
   return oss.str();
 }
 
-void recordResult(size_t iThread, GridUniquenessState& state,
+void recordResult(size_t iThread, ExpansionState& state,
                   const vector<double>& pointWithGridCodeZero)
 {
   state.continueExpansion = false;
-  if (state.threadBaselineRadius[iThread] < state.foundPointBaselineRadius)
+  if (state.threadBaselineFactor[iThread] < state.foundPointBaselineRadius)
   {
-    state.foundPointBaselineRadius = state.threadBaselineRadius[iThread];
+    state.foundPointBaselineRadius = state.threadBaselineFactor[iThread];
     state.pointWithGridCodeZero = pointWithGridCodeZero;
 
     // Notify all others that they should stop unless they're checking a lower
     // base width.
     for (size_t iOtherThread = 0;
-         iOtherThread < state.threadBaselineRadius.size();
+         iOtherThread < state.threadBaselineFactor.size();
          iOtherThread++)
     {
       if (iOtherThread != iThread &&
           state.threadShouldContinue[iOtherThread] &&
-          (state.threadBaselineRadius[iOtherThread] >=
+          (state.threadBaselineFactor[iOtherThread] >=
            state.foundPointBaselineRadius))
       {
         state.threadShouldContinue[iOtherThread] = false;
@@ -1378,54 +1375,7 @@ void recordResult(size_t iThread, GridUniquenessState& state,
   }
 }
 
-void claimNextTask(size_t iThread, GridUniquenessState& state)
-{
-  state.threadBaselineRadius[iThread] = state.baselineRadius;
-
-  vector<double>& x0 = state.threadQueryX0[iThread];
-  vector<double>& dims = state.threadQueryDims[iThread];
-
-  // Determine all but the final dimension.
-  for (size_t iDim = 0; iDim < state.numDims - 1; iDim++)
-  {
-    dims[iDim] = 2*state.expansionProgress[iDim];
-    x0[iDim] = -state.expansionProgress[iDim];
-  }
-
-  // Optimization: for the final dimension, don't go negative. Half of the
-  // hypercube will be equal-and-opposite phases of the other half, so we ignore
-  // the lower half of the final dimension.
-  dims[state.numDims - 1] = state.expansionProgress[state.numDims - 1];
-  x0[state.numDims - 1] = 0;
-
-  // Make the changes specific to this query.
-  dims[state.expandingDim] = state.expansionRadiusGoal - state.baselineRadius;
-  x0[state.expandingDim] = state.positiveExpand
-    ? state.baselineRadius
-    : -state.expansionRadiusGoal;
-
-  // Update.
-  if (state.positiveExpand &&
-      // Optimization: Don't check the negative for the final
-      // dimension. (described above)
-      state.expandingDim < state.numDims - 1)
-  {
-    state.positiveExpand = false;
-  }
-  else
-  {
-    state.positiveExpand = true;
-    state.expansionProgress[state.expandingDim] = state.expansionRadiusGoal;
-    if (++state.expandingDim >= state.numDims)
-    {
-      state.baselineRadius = state.expansionRadiusGoal;
-      state.expansionRadiusGoal *= 1.01;
-      state.expandingDim = 0;
-    }
-  }
-}
-
-void findGridCodeZeroThread(size_t iThread, GridUniquenessState& state)
+void findGridCodeZeroThread(size_t iThread, ExpansionState& state)
 {
   bool foundGridCodeZero = false;
   vector<double> x0(state.numDims);
@@ -1461,7 +1411,9 @@ void findGridCodeZeroThread(size_t iThread, GridUniquenessState& state)
       }
 
       // Select task params.
-      claimNextTask(iThread, state);
+      state.expansionEnumerator.getNext(state.threadQueryX0[iThread].data(),
+                                        state.threadQueryDims[iThread].data(),
+                                        &state.threadBaselineFactor[iThread]);
 
       // Make an unshared copy that findGridCodeZeroHelper can modify.
       x0 = state.threadQueryX0[iThread];
@@ -1487,9 +1439,12 @@ void findGridCodeZeroThread(size_t iThread, GridUniquenessState& state)
 
     for (size_t iDim = 0; iDim < state.numDims; iDim++)
     {
-      numBinsByDim[iDim] = ceil(dims[iDim] / (scalesPerBin *
-                                              state.meanScaleEstimate));
-      dims[iDim] /= numBinsByDim[iDim];
+      if (dims[iDim] != 0)
+      {
+        numBinsByDim[iDim] = ceil(dims[iDim] / (scalesPerBin *
+                                                state.meanScaleEstimate));
+        dims[iDim] /= numBinsByDim[iDim];
+      }
     }
 
     const vector<double>& x0_orig = state.threadQueryX0[iThread];
@@ -1515,6 +1470,7 @@ void findGridCodeZeroThread(size_t iThread, GridUniquenessState& state)
       bool overflow = true;
       for (size_t iDigit = 0; iDigit < state.numDims; iDigit++)
       {
+        if (numBinsByDim[iDigit] == 0) continue;
         overflow = ++currentBinByDim[iDigit] == numBinsByDim[iDigit];
         if (!overflow) break;
         currentBinByDim[iDigit] = 0;
@@ -1654,11 +1610,12 @@ bool gridcodingrange::findGridCodeZero(
 }
 
 pair<double,vector<double>>
-gridcodingrange::computeGridUniquenessHypercube(
+gridcodingrange::computeCodingRange(
   const vector<vector<vector<double>>>& domainToPlaneByModule,
   const vector<vector<vector<double>>>& latticeBasisByModule,
+  const vector<double> &scaledbox,
+  const vector<double> &ignorebox,
   double readoutResolution,
-  double ignoredCenterDiameter,
   double pingInterval)
 {
   typedef std::chrono::steady_clock Clock;
@@ -1751,7 +1708,12 @@ gridcodingrange::computeGridUniquenessHypercube(
 
   size_t numThreads = std::thread::hardware_concurrency();
 
-  GridUniquenessState state = {
+  // Optimization: for the final dimension, don't go negative. Half of the box
+  // will be equal-and-opposite phases of the other half, so we ignore the lower
+  // half of the final dimension.
+  unsigned reflectDims = (0x1 << (numDims - 1)) - 1;
+
+  ExpansionState state = {
     domainToPlaneByModule2,
     latticeBasisByModule3,
     inverseLatticeBasisByModule,
@@ -1760,11 +1722,9 @@ gridcodingrange::computeGridUniquenessHypercube(
     meanScaleEstimate,
     numDims,
 
-    ignoredCenterDiameter,
-    ignoredCenterDiameter * 1.01,
-    vector<double>(numDims, ignoredCenterDiameter),
-    0,
-    true,
+    {scaledbox.begin(), scaledbox.end(),
+     ignorebox.begin(), ignorebox.end(),
+     reflectDims},
     true,
 
     vector<double>(numDims),
@@ -1861,7 +1821,7 @@ gridcodingrange::computeGridUniquenessHypercube(
           if (state.foundPointBaselineRadius <
               std::numeric_limits<double>::max())
           {
-            NTA_INFO << "**Hypercube side length upper bound: "
+            NTA_INFO << "**Box scale factor upper bound: "
                      << state.foundPointBaselineRadius << "**";
             NTA_INFO << "**Grid code zero found at: "
                      << vecs(state.pointWithGridCodeZero) << "**";
@@ -1870,7 +1830,7 @@ gridcodingrange::computeGridUniquenessHypercube(
           tNextPrint = (Clock::now() +
                         std::chrono::duration<double>(pingInterval));
 
-          for (size_t iThread = 0; iThread < state.threadBaselineRadius.size();
+          for (size_t iThread = 0; iThread < state.threadBaselineFactor.size();
                iThread++)
           {
             if (state.threadRunning[iThread])
@@ -1878,8 +1838,8 @@ gridcodingrange::computeGridUniquenessHypercube(
               if (state.threadShouldContinue[iThread])
               {
                 NTA_INFO << "  Thread " << iThread
-                         << " assuming hypercube side length lower bound "
-                         << state.threadBaselineRadius[iThread]
+                         << " assuming box scale factor lower bound "
+                         << state.threadBaselineFactor[iThread]
                          << ", querying x0 "
                          << vecs(state.threadQueryX0[iThread]) << " and dims "
                          << vecs(state.threadQueryDims[iThread]);
@@ -1914,6 +1874,25 @@ gridcodingrange::computeGridUniquenessHypercube(
     default:
       return {state.foundPointBaselineRadius, state.pointWithGridCodeZero};
   }
+}
+
+
+pair<double,vector<double>>
+gridcodingrange::computeGridUniquenessHypercube(
+  const vector<vector<vector<double>>>& domainToPlaneByModule,
+  const vector<vector<vector<double>>>& latticeBasisByModule,
+  double readoutResolution,
+  double ignoredCenterDiameter,
+  double pingInterval)
+{
+  const size_t numDims = domainToPlaneByModule[0][0].size();
+
+  const vector<double> scaledbox(numDims, 1.0);
+  const vector<double> ignorebox(numDims, ignoredCenterDiameter);
+
+  return computeCodingRange(domainToPlaneByModule, latticeBasisByModule,
+                            scaledbox, ignorebox, readoutResolution,
+                            pingInterval);
 }
 
 bool tryFindGridCodeZero_noModulo(

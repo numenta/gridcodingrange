@@ -20,13 +20,14 @@
 # ----------------------------------------------------------------------
 
 import argparse
+import math
 import os
 import pickle
 import re
 
 import numpy as np
 
-from gridcodingrange import computeGridUniquenessHypercube
+from gridcodingrange import computeCodingRange
 
 
 def create_L(m, theta=np.pi/3.):
@@ -85,24 +86,32 @@ def measureSidelengths(folderPath):
                               for k in ks
                               if 2*m >= k]
 
-        unique_sidelengths = np.full_like(bin_sidelengths, np.nan)
+        max_scale_factors = np.full_like(bin_sidelengths, np.nan)
 
         for phr, m, k in param_combinations:
-            A_ = A[:m, :, :k]
+            A_ = A[:m, :, :int(math.ceil(k))]
             sort_order = np.argsort(S[:m])[::-1]
             A_ = A_[sort_order, :, :]
             L_ = L[:m]
 
+            scaledbox = np.ones(int(math.ceil(k)), dtype='float')
+            partial_final_dim = k - math.floor(k)
+            if partial_final_dim > 0:
+                scaledbox[-1] = partial_final_dim
+
             bin_sidelength = bin_sidelengths[phase_resolutions.index(phr),
                                              ms.index(m), ks.index(k)]
+            ignorebox = (bin_sidelength/2)*np.ones(int(math.ceil(k)), dtype='float')
 
-            unique_sidelength, _ = computeGridUniquenessHypercube(
-                A_, L_, phr, ignoredCenterDiameter=bin_sidelength/2)
+            max_scale_factor, _ = computeCodingRange(
+                A_, L_, scaledbox, ignorebox, phr,
+                pingInterval=100.0)
 
-            unique_sidelengths[phase_resolutions.index(phr),
-                               ms.index(m), ks.index(k)] = unique_sidelength
 
-        result_dict["width"] = unique_sidelengths
+            max_scale_factors[phase_resolutions.index(phr),
+                              ms.index(m), ks.index(k)] = max_scale_factor
+
+        result_dict["width"] = max_scale_factors
 
         with open(outFilePath, "wb") as fout:
             print("Saving {}".format(outFilePath))

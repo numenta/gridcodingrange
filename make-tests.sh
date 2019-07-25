@@ -4,11 +4,11 @@ set -e
 
 cd "$(dirname "$0")"
 
-debug=false
+debug=true
 
 outbin="run-tests"
 
-cmd="g++ -o $outbin ./src/test/main.cpp ./src/test/GridUniquenessTest.cpp ./src/GridUniqueness.cpp ./src/external/gtest/src/gtest-all.cc -I./src -I./src/external -I./src/external/gtest -lpthread"
+cmd="g++ -o $outbin ./src/test/*.cpp ./src/GridUniqueness.cpp ./src/external/gtest/src/gtest-all.cc -I./src -I./src/external -I./src/external/gtest -lpthread -std=c++14"
 
 if [ "$debug" = true ] ; then
     cmd="$cmd -g -D NTA_ASSERTIONS_ON"

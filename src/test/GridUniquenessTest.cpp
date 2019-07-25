@@ -31,7 +31,7 @@
 #include <vector>
 #include <cmath>
 
-using namespace nupic::experimental::grid_uniqueness;
+using namespace gridcodingrange;
 using std::vector;
 using std::pair;
 
@@ -521,6 +521,44 @@ namespace {
                       0.01, 0.5).first));
   }
 
+  TEST(GridUniquenessTest, NonCubeBoxToScale)
+  {
+    const vector<double> ignorebox = {0.5, 0.5};
+
+    // Baseline: a half-size box still finds just as quickly.
+    EXPECT_EQ(12,
+              floor(computeCodingRange(
+                      getPlaneMatrixWithNearestZeroAt(12.5, 0.25),
+                      getLatticeBasisWithNearestZeroAt(12.5, 0.25),
+                      {1.0, 0.5},
+                      ignorebox,
+                      0.01).first));
+
+    // When box has different aspect ratio, it must be expanded further to find
+    // the same collision.
+    EXPECT_EQ(24,
+              floor(computeCodingRange(
+                      getPlaneMatrixWithNearestZeroAt(12.5, 0.25),
+                      getLatticeBasisWithNearestZeroAt(12.5, 0.25),
+                      {0.5, 1.0},
+                      ignorebox,
+                      0.01).first));
+  }
+
+  TEST(GridUniquenessTest, ScaledboxWithZeroWidth)
+  {
+    const vector<double> ignorebox = {0.5, 0.5};
+
+    // If the scaledbox has 0 as one of its dimensions, it should still work.
+    // It just expands an n-1 dimensional box in a ND space.
+    EXPECT_EQ(12,
+              floor(computeCodingRange(
+                      getPlaneMatrixWithNearestZeroAt(12.5, 0.0),
+                      getLatticeBasisWithNearestZeroAt(12.5, 0.0),
+                      {1.0, 0.0},
+                      ignorebox,
+                      0.01).first));
+  }
 
   /**
    * Test 1: Upper right region
