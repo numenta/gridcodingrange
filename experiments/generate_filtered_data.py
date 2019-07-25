@@ -23,12 +23,13 @@ import argparse
 import multiprocessing
 import os
 import pickle
+import sys
 import threading
 
 import numpy as np
 from scipy.stats import ortho_group
 
-from htmresearch_core.experimental import computeBinSidelength
+from gridcodingrange import computeBinSidelength
 
 
 def create_bases(k, s):
@@ -118,7 +119,7 @@ def processCubeQuery(query):
 
         except RuntimeError as e:
             if e.message == "timeout":
-                print "Timed out on query {}".format(expDict["A"])
+                print("Timed out on query {}".format(expDict["A"]))
 
                 numDiscardedTimeout += 1
                 continue
@@ -149,18 +150,22 @@ class Scheduler(object):
                                    for k in ks
                                    if 2*m >= k]
 
-        for _ in xrange(numTrials):
+        for _ in range(numTrials):
             self.queueNewWorkItem()
 
 
     def join(self):
         try:
-            # Interrupts (ctrl+c) have no effect without a timeout.
-            self.finishedEvent.wait(9999999999)
+            if sys.version_info >= (3, 0):
+                self.finishedEvent.wait()
+            else:
+                # Python 2
+                # Interrupts (ctrl+c) have no effect without a timeout.
+                self.finishedEvent.wait(9999999999)
             self.pool.close()
             self.pool.join()
         except KeyboardInterrupt:
-            print "Caught KeyboardInterrupt, terminating workers"
+            print("Caught KeyboardInterrupt, terminating workers")
             self.pool.terminate()
             self.pool.join()
 
@@ -218,9 +223,9 @@ class Scheduler(object):
         filepath = os.path.join(successFolder, "in_{}.p".format(
             self.successCounter))
         self.successCounter += 1
-        with open(filepath, "w") as fout:
-            print "Saving", filepath, "({} remaining)".format(
-                self.numTrials - self.successCounter)
+        with open(filepath, "wb") as fout:
+            print("Saving {} ({} remaining)".format(
+                filepath, self.numTrials - self.successCounter))
             pickle.dump(resultDict, fout)
 
         if self.successCounter == self.numTrials:

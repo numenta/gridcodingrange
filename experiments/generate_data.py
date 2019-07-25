@@ -28,8 +28,7 @@ import threading
 import numpy as np
 from scipy.stats import ortho_group
 
-from htmresearch_core.experimental import (computeBinSidelength,
-                                           computeBinRectangle)
+from gridcodingrange import computeBinSidelength, computeBinRectangle
 
 
 def create_bases(k, s):
@@ -101,14 +100,14 @@ def processCubeQuery(query):
         result = computeBinSidelength(A, phase_resolution, resultResolution,
                                       upperBound, timeout)
         if result == -1.0:
-            print "Couldn't find bin smaller than {} for query {}".format(
-                upperBound, A.tolist())
+            print("Couldn't find bin smaller than {} for query {}".format(
+                upperBound, A.tolist()))
             return None
 
         return result
     except RuntimeError as e:
         if e.message == "timeout":
-            print "Timed out on query {}".format(A.tolist())
+            print("Timed out on query {}".format(A.tolist()))
             return None
         else:
             raise
@@ -125,14 +124,14 @@ def processRectangleQuery(query):
                                      upperBound, timeout)
 
         if len(result) == 0:
-            print "Couldn't find bin smaller than {} for query {}".format(
-                upperBound, A.tolist())
+            print("Couldn't find bin smaller than {} for query {}".format(
+                upperBound, A.tolist()))
             return None
 
         return result
     except RuntimeError as e:
         if e.message == "timeout":
-            print "Timed out on query {}".format(A.tolist())
+            print("Timed out on query {}".format(A.tolist()))
             return None
         else:
             raise
@@ -175,7 +174,7 @@ class Scheduler(object):
                                    for k in ks
                                    if 2*m >= k]
 
-        for _ in xrange(numTrials):
+        for _ in range(numTrials):
             self.queueNewWorkItem()
 
 
@@ -186,7 +185,7 @@ class Scheduler(object):
             self.pool.close()
             self.pool.join()
         except KeyboardInterrupt:
-            print "Caught KeyboardInterrupt, terminating workers"
+            print("Caught KeyboardInterrupt, terminating workers")
             self.pool.terminate()
             self.pool.join()
 
@@ -226,8 +225,8 @@ class Scheduler(object):
         filepath = os.path.join(failureFolder, filename)
 
         with open(filepath, "w") as fout:
-            print "Saving", filepath, "({} remaining)".format(
-                self.numTrials - self.successCounter)
+            print("Saving", filepath, "({} remaining)".format(
+                self.numTrials - self.successCounter))
             pickle.dump(resultDict, fout)
 
         self.queueNewWorkItem()
@@ -258,9 +257,9 @@ class Scheduler(object):
         filepath = os.path.join(successFolder, "in_{}.p".format(
             self.successCounter))
         self.successCounter += 1
-        with open(filepath, "w") as fout:
-            print "Saving", filepath, "({} remaining)".format(
-                self.numTrials - self.successCounter)
+        with open(filepath, "wb") as fout:
+            print("Saving {} ({} remaining)".format(
+                filepath, self.numTrials - self.successCounter))
             pickle.dump(resultDict, fout)
 
         if self.successCounter == self.numTrials:

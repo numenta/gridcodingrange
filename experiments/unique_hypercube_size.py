@@ -26,20 +26,20 @@ import time
 import numpy as np
 import matplotlib.pyplot as plt
 
-from htmresearch_core.experimental import computeGridUniquenessHypercube
+from gridcodingrange import computeGridUniquenessHypercube
 
 CWD = os.path.dirname(os.path.realpath(__file__))
 CHART_DIR = os.path.join(CWD, "charts")
 
 
 def doRandomModuleExperiment(ms, ks, latticeAngle=np.radians(60)):
-  scales = [1.*(math.sqrt(2)**s) for s in xrange(max(ms))]
+  scales = [1.*(math.sqrt(2)**s) for s in range(max(ms))]
   readoutResolution = 0.2
   kmax = max(ks)
 
   domainToPlaneByModule = []
   latticeBasisByModule = []
-  for s in xrange(max(ms)):
+  for s in range(max(ms)):
     b1 = np.random.multivariate_normal(mean=np.zeros(kmax), cov=np.eye(kmax))
     b1 /= np.linalg.norm(b1)
 
@@ -60,7 +60,7 @@ def doRandomModuleExperiment(ms, ks, latticeAngle=np.radians(60)):
     bases = np.zeros((kmax, kmax), dtype="float")
     bases[:,0] = b1
     bases[:,1] = b2
-    for iDim in xrange(2, kmax):
+    for iDim in range(2, kmax):
         b = np.random.multivariate_normal(mean=np.zeros(kmax), cov=np.eye(kmax))
         b /= np.linalg.norm(b)
         bases[:,iDim] = b
@@ -79,9 +79,9 @@ def doRandomModuleExperiment(ms, ks, latticeAngle=np.radians(60)):
     for k in ks:
       domainToPlaneByModule_ = domainToPlaneByModule[:m,:,:k]
       latticeBasisByModule_ = latticeBasisByModule[:m]
-      print
-      print "domainToPlaneByModule", domainToPlaneByModule_.tolist()
-      print "latticeBasisByModule", latticeBasisByModule.tolist()
+      print()
+      print("domainToPlaneByModule {}".format(domainToPlaneByModule_.tolist()))
+      print("latticeBasisByModule {}".format(latticeBasisByModule.tolist()))
       result = computeGridUniquenessHypercube(domainToPlaneByModule_,
                                               latticeBasisByModule_,
                                               readoutResolution, 0.5)
@@ -91,18 +91,18 @@ def doRandomModuleExperiment(ms, ks, latticeAngle=np.radians(60)):
 
 
 def experiment1():
-  ms = range(1, 8)
-  ks = range(1, 7)
+  ms = list(range(1, 8))
+  ks = list(range(1, 7))
   numTrials = 5
 
   allResultsByParams = defaultdict(list)
-  for _ in xrange(numTrials):
+  for _ in range(numTrials):
     A, resultsByParams = doRandomModuleExperiment(ms, ks)
-    for params, v in resultsByParams.iteritems():
+    for params, v in resultsByParams.items():
       allResultsByParams[params].append(v)
 
   meanResultByParams = {}
-  for params, listOfResults in allResultsByParams.iteritems():
+  for params, listOfResults in allResultsByParams.items():
     meanResultByParams[params] = (sum(listOfResults) / len(listOfResults))
 
   timestamp = time.strftime("%Y%m%d-%H%M%S")
@@ -124,7 +124,7 @@ def experiment1():
               for m in ms])
   filename = "Diameter_%s.pdf" % timestamp
   filePath = os.path.join(CHART_DIR, filename)
-  print "Saving", filePath
+  print("Saving {}".format(filePath))
   plt.savefig(filePath)
 
   # Volume plot
@@ -144,7 +144,7 @@ def experiment1():
               for m in ms])
   filename = "Volume_%s.pdf" % timestamp
   filePath = os.path.join(CHART_DIR, filename)
-  print "Saving", filePath
+  print("Saving {}".format(filePath))
   plt.savefig(filePath)
 
 

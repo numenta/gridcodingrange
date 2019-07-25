@@ -26,7 +26,7 @@ import re
 
 import numpy as np
 
-from htmresearch_core.experimental import computeGridUniquenessHypercube
+from gridcodingrange import computeGridUniquenessHypercube
 
 
 def create_L(m, theta=np.pi/3.):
@@ -60,12 +60,16 @@ def measureSidelengths(folderPath):
 
         iFile = int(re.match("in_([0-9]+).p", filename).groups()[0])
 
-        print "Computing result", iFile
+        print("Computing result {}".format(iFile))
 
         outFilePath = os.path.join(folderPath, "out", "res_{}.p".format(iFile))
 
-        with open(inFilePath, "r") as fin:
-            result_dict = pickle.load(fin)
+        with open(inFilePath, "rb") as fin:
+            try:
+                result_dict = pickle.load(fin)
+            except UnicodeDecodeError:
+                # Probably loading Python2 pickled file from Python3
+                result_dict = pickle.load(fin, encoding='latin1')
 
         ms = result_dict["ms"]
         ks = result_dict["ks"]
@@ -96,8 +100,8 @@ def measureSidelengths(folderPath):
 
         result_dict["width"] = unique_sidelengths
 
-        with open(outFilePath, "w") as fout:
-            print "Saving", outFilePath
+        with open(outFilePath, "wb") as fout:
+            print("Saving {}".format(outFilePath))
             pickle.dump(result_dict, fout)
 
 
