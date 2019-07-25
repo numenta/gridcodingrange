@@ -24,7 +24,7 @@
  * Implementations for GridUniqueness.hpp
  */
 
-#include "GridUniqueness.hpp"
+#include "grid_coding_range.hpp"
 #include "box_expansion.hpp"
 #include <nta_logging.hpp>
 

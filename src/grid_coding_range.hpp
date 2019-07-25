@@ -24,8 +24,8 @@
  * Functions that analyze the uniqueness of locations in grid cell spaces
  */
 
-#ifndef NTA_GRID_UNIQUENESS_HPP
-#define NTA_GRID_UNIQUENESS_HPP
+#ifndef NTA_GRIDCODINGRANGE
+#define NTA_GRIDCODINGRANGE
 
 #include <vector>
 #include <utility>
@@ -240,4 +240,4 @@ namespace gridcodingrange
 
 } // end namespace gridcodingrange
 
-#endif // NTA_GRID_UNIQUENESS_HPP
+#endif // NTA_GRIDCODINGRANGE

@@ -25,7 +25,7 @@
 
 #include <nta_logging.hpp>
 
-#include "GridUniqueness.hpp"
+#include "grid_coding_range.hpp"
 #include <gtest/gtest.h>
 
 #include <vector>

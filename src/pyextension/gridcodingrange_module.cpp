@@ -26,7 +26,7 @@
 
 #include <vector>
 
-#include "GridUniqueness.hpp"
+#include "grid_coding_range.hpp"
 #include <nta_logging.hpp>
 
 using std::pair;

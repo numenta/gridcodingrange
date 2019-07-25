@@ -17,8 +17,8 @@ class get_pybind_include(object):
 
 
 sources = [
-    'src/gridcodingrange_module.cpp',
-    'src/GridUniqueness.cpp',
+    'src/pyextension/gridcodingrange_module.cpp',
+    'src/grid_coding_range.cpp',
 ]
 
 
@@ -42,7 +42,8 @@ module = Extension(
     sources=sources,
     extra_compile_args=compile_args,
     extra_link_args=link_args,
-    include_dirs=['./src/external',
+    include_dirs=['./src/',
+                  './src/external',
                   get_pybind_include(),
                   get_pybind_include(user=True)]
 )
