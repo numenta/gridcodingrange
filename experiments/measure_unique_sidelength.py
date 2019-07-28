@@ -101,12 +101,12 @@ def measureSidelengths(folderPath):
 
             bin_sidelength = bin_sidelengths[phase_resolutions.index(phr),
                                              ms.index(m), ks.index(k)]
-            ignorebox = (bin_sidelength/2)*np.ones(int(math.ceil(k)), dtype='float')
+            ignorebox = (0.51*bin_sidelength)*np.ones(int(math.ceil(k)),
+                                                      dtype='float')
 
             max_scale_factor, _ = computeCodingRange(
                 A_, L_, scaledbox, ignorebox, phr,
                 pingInterval=100.0)
-
 
             max_scale_factors[phase_resolutions.index(phr),
                               ms.index(m), ks.index(k)] = max_scale_factor
