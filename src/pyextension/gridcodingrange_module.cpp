@@ -121,8 +121,8 @@ computeBinSidelength(
   py::buffer domainToPlaneByModule,
   double readoutResolution,
   double resultPrecision,
-  double upperBound = 1000.0,
-  double timeout = -1.0)
+  double upperBound,
+  double timeout)
 {
   return gridcodingrange::computeBinSidelength(
     copyArray3D(domainToPlaneByModule), readoutResolution, resultPrecision,
@@ -134,8 +134,8 @@ computeBinRectangle(
   py::buffer domainToPlaneByModule,
   double readoutResolution,
   double resultPrecision,
-  double upperBound = 1000.0,
-  double timeout = -1.0)
+  double upperBound,
+  double timeout)
 {
   return gridcodingrange::computeBinRectangle(
     copyArray3D(domainToPlaneByModule), readoutResolution, resultPrecision,
