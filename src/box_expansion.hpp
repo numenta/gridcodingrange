@@ -23,7 +23,7 @@
 #ifndef NTA_BOX_EXPANSION
 #define NTA_BOX_EXPANSION
 
-#include <numeric>
+#include <limits>
 #include <vector>
 
 /**
@@ -235,12 +235,12 @@ public:
     const It ignorebox_begin, const It ignorebox_end,
     unsigned dimflags = (unsigned)-1)
     : bitvector_(0x0),
+      started_(false),
       single_quadrant_expansion_(scaledbox_begin, scaledbox_end,
                                  ignorebox_begin, ignorebox_end),
-      ndim_(std::distance(scaledbox_begin, scaledbox_end)),
-      started_(false)
+      ndim_(std::distance(scaledbox_begin, scaledbox_end))
   {
-    dimflags_ = (dimflags == -1)
+    dimflags_ = (dimflags == (unsigned)-1)
       ? ((0x1 << ndim_) - 1)
       : dimflags;
 
