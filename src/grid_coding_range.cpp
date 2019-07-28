@@ -26,6 +26,7 @@
 
 #include "grid_coding_range.hpp"
 #include "box_expansion.hpp"
+#include "distance_from_polygon.hpp"
 #include <nta_logging.hpp>
 
 #include <math.h>
@@ -558,199 +559,6 @@ bool tryFindGridCodeZero(
   return true;
 }
 
-double circleDistanceFromLineSegmentSquared(pair<double, double> start,
-                                            pair<double, double> end,
-                                            pair<double, double> center,
-                                            pair<double, double> unitVector,
-                                            double lineLength)
-{
-  const double centerDistanceAlongLine =
-    (unitVector.first*(center.first - start.first) +
-     unitVector.second*(center.second - start.second));
-
-  pair<double,double> nearestPointOnLine;
-  if (centerDistanceAlongLine <= 0)
-  {
-    nearestPointOnLine = start;
-  }
-  else if (centerDistanceAlongLine < lineLength)
-  {
-    nearestPointOnLine = {
-      start.first + unitVector.first * centerDistanceAlongLine,
-      start.second + unitVector.second * centerDistanceAlongLine,
-    };
-  }
-  else
-  {
-    nearestPointOnLine = end;
-  }
-
-  return (pow(center.first - nearestPointOnLine.first, 2) +
-          pow(center.second - nearestPointOnLine.second, 2));
-}
-
-bool lineSegmentIntersectsCircle(pair<double, double> start,
-                                 pair<double, double> end,
-                                 pair<double, double> center,
-                                 double rSquared)
-{
-  pair<double,double> unitVector = {end.first - start.first,
-                                    end.second - start.second};
-  const double lineLength = sqrt(pow(unitVector.first, 2) +
-                                 pow(unitVector.second, 2));
-  unitVector.first /= lineLength;
-  unitVector.second /= lineLength;
-
-  return circleDistanceFromLineSegmentSquared(start, end, center, unitVector,
-                                              lineLength) <= rSquared;
-}
-
-struct LineInfo2D {
-  pair<double,double> unitVector;
-  double length;
-};
-
-struct HalfPlaneData
-{
-  pair<double,double> normalVector;
-  double top;
-};
-
-struct PolygonData {
-  bool isValidPolygon;
-  pair<double,double> centroid;
-  vector<pair<double,double>> points;
-  vector<double> thetaByPoint;
-  vector<HalfPlaneData> halfPlaneByEndpoint;
-  vector<LineInfo2D> lineInfoByEndpoint;
-};
-
-/**
- * Computing theta can be expensive. Get a number that increases monotonically
- * with theta.
- */
-double getThetaIndex(double dx, double dy)
-{
-  // // Simple slow version.
-  // double theta = atan2(dy, dx);
-  // if (theta < 0)
-  // {
-  //   theta += 2*M_PI;
-  // }
-  // return theta;
-
-  // Faster version.
-  const bool dxSign = dx >= 0;
-  const bool dySign = dy >= 0;
-
-  if (dxSign && dySign)
-  {
-    if (dy < dx)
-    {
-      return dy / dx;
-    }
-    else
-    {
-      return 2.0 - (dx / dy);
-    }
-  }
-  else if (!dxSign && dySign)
-  {
-    dx = std::abs(dx);
-    if (dy > dx)
-    {
-      return 2.0 + (dx / dy);
-    }
-    else
-    {
-      return 4.0 - (dy / dx);
-    }
-  }
-  else if (!dxSign && !dySign)
-  {
-    dx = std::abs(dx);
-    dy = std::abs(dy);
-    if (dy < dx)
-    {
-      return 4.0 + (dy / dx);
-    }
-    else
-    {
-      return 6.0 - (dx / dy);
-    }
-  }
-  else
-  {
-    dy = std::abs(dy);
-    if (dy > dx)
-    {
-      return 6.0 + (dx / dy);
-    }
-    else
-    {
-      return 8.0 - (dy / dx);
-    }
-  }
-}
-
-double pointDistanceFromShadowSquared(
-  pair<double, double> point,
-  const PolygonData& shadow,
-  size_t numDims)
-{
-  const pair<double,double> *p1;
-  const pair<double,double> *p2;
-  const LineInfo2D *lineInfo;
-  if (shadow.isValidPolygon)
-  {
-    // Figure out which edge to check.
-    const double thetaIndex = getThetaIndex(point.first - shadow.centroid.first,
-                                            point.second - shadow.centroid.second);
-
-    const vector<double>::const_iterator it = (shadow.points.size() <= 8)
-      ? std::find_if(shadow.thetaByPoint.begin(), shadow.thetaByPoint.end(),
-                     [&](double d)
-                     {
-                       return thetaIndex < d;
-                     })
-      : std::lower_bound(shadow.thetaByPoint.begin(), shadow.thetaByPoint.end(),
-                         thetaIndex);
-
-    // If we reached the end, set i back to 0.
-    const size_t iEnd = std::distance(shadow.thetaByPoint.begin(),
-                                      it) % shadow.thetaByPoint.size();
-
-    // Check whether the lattice point is contained within the shadow.
-    const pair<double,double>& normalVector =
-      shadow.halfPlaneByEndpoint[iEnd].normalVector;
-    if (normalVector.first*point.first +
-        normalVector.second*point.second
-        <= shadow.halfPlaneByEndpoint[iEnd].top)
-    {
-      // The point is contained.
-      return 0.0;
-    }
-
-    // Proceed to check whether the circle around the lattice point intersects
-    // with this edge.
-    p1 = (iEnd == 0)
-      ? &shadow.points[shadow.points.size() - 1]
-      : &shadow.points[iEnd - 1];
-    p2 = &shadow.points[iEnd];
-    lineInfo = &shadow.lineInfoByEndpoint[iEnd];
-  }
-  else
-  {
-    p1 = &shadow.points[1];
-    p2 = &shadow.points[0];
-    lineInfo = &shadow.lineInfoByEndpoint[0];
-  }
-
-  return circleDistanceFromLineSegmentSquared(*p1, *p2, point,
-                                              lineInfo->unitVector,
-                                              lineInfo->length);
-}
-
 vector<pair<double,double>> getShadowConvexHull(
   const vector<vector<double>>& domainToPlane,
   size_t numDims,
@@ -765,13 +573,10 @@ vector<pair<double,double>> getShadowConvexHull(
     const double point3[2] = {dims[0], dims[1]};
     const double point4[2] = {dims[0], 0};
 
-    const pair<double,double> p1 =  transformND(domainToPlane, point1);
-
-    return {p1,
+    return {transformND(domainToPlane, point1),
             transformND(domainToPlane, point2),
             transformND(domainToPlane, point3),
-            transformND(domainToPlane, point4),
-            p1};
+            transformND(domainToPlane, point4)};
   }
 
   typedef boost::tuple<float, float> point;
@@ -791,8 +596,9 @@ vector<pair<double,double>> getShadowConvexHull(
 
   vector<pair<double, double>> convexHull;
   convexHull.reserve(hull.outer().size());
-
-  for (auto it = hull.outer().begin(); it != hull.outer().end(); ++it)
+  for (auto it = hull.outer().begin();
+       it != hull.outer().end() - 1; // don't include duplicate start point
+       ++it)
   {
     convexHull.push_back({bg::get<0>(*it),
                           bg::get<1>(*it)});
@@ -846,7 +652,7 @@ bool tryProveGridCodeZeroImpossible_1D(
     while (!foundLatticeCollision && latticePoints.getNext(&latticePoint))
     {
       foundLatticeCollision =
-        lineSegmentIntersectsCircle(p1, p2, latticePoint, rSquared);
+        distToSegmentSquared(latticePoint, p1, p2) <= rSquared;
     }
 
     if (!foundLatticeCollision)
@@ -880,166 +686,6 @@ BoundingBox2D computeBoundingBox(const vector<pair<double,double>>& shadow)
   }
 
   return boundingBox;
-}
-
-vector<LineInfo2D> computeShadowLines(const vector<pair<double,double>>& points)
-{
-  vector<LineInfo2D> lines;
-  lines.reserve(points.size());
-
-  for (size_t iEnd = 0; iEnd < points.size(); ++iEnd)
-  {
-    const pair<double,double>& p1 = (iEnd == 0)
-      ? points[points.size() - 1]
-      : points[iEnd - 1];
-    const pair<double,double>& p2 = points[iEnd];
-
-    pair<double,double> unitVector = {p2.first - p1.first,
-                                      p2.second - p1.second};
-    const double lineLength = sqrt(pow(unitVector.first, 2) +
-                                   pow(unitVector.second, 2));
-    unitVector.first /= lineLength;
-    unitVector.second /= lineLength;
-
-    lines.push_back({unitVector, lineLength});
-  }
-
-  return lines;
-}
-
-PolygonData computePolygonData(const vector<pair<double, double>>& shadow)
-{
-  // Compute the polygon's area times two.
-  double acc = 0;
-  for (size_t iStart = 0; iStart < shadow.size() - 1; ++iStart)
-  {
-    const pair<double,double>& p1 = shadow[iStart];
-    const pair<double,double>& p2 = shadow[iStart + 1];
-
-    acc += p1.first * p2.second;
-    acc -= p2.first * p1.second;
-  }
-
-  const bool isValidPolygon = (acc != 0);
-
-  if (isValidPolygon)
-  {
-    // Make a copy that doesn't have the duplicate at the end.
-    vector<pair<double,double>> points(shadow.begin(),
-                                       shadow.end() - 1);
-
-    // Compute centroid.
-    double xsum = 0;
-    double ysum = 0;
-    for (const pair<double,double>& p : points)
-    {
-      xsum += p.first;
-      ysum += p.second;
-    }
-    const pair<double,double> centroid = {xsum / points.size(),
-                                          ysum / points.size()};
-
-    // Compute thetas.
-    vector<double> thetas;
-    thetas.reserve(points.size());
-    for (const pair<double,double>& p : points)
-    {
-      thetas.push_back(getThetaIndex(p.first - centroid.first,
-                                     p.second - centroid.second));
-    }
-
-    // Sort by theta.
-    {
-      vector<size_t> indices(points.size());
-      std::iota(indices.begin(), indices.end(), 0);
-      std::sort(indices.begin(), indices.end(),
-                [&](size_t a, size_t b) {
-                  return thetas[a] < thetas[b];
-                });
-      vector<pair<double,double>> pointsSorted;
-      pointsSorted.reserve(points.size());
-      vector<double> thetasSorted;
-      thetasSorted.reserve(points.size());
-      for (size_t idx : indices)
-      {
-        pointsSorted.push_back(points[idx]);
-        thetasSorted.push_back(thetas[idx]);
-      }
-      points = std::move(pointsSorted);
-      thetas = std::move(thetasSorted);
-    }
-
-    // Compute half planes.
-    vector<HalfPlaneData> halfPlanes;
-    halfPlanes.reserve(points.size());
-    for (size_t i = 0; i < points.size(); ++i)
-    {
-      const pair<double,double>& p1 = (i == 0)
-        ? points[points.size() - 1]
-        : points[i - 1];
-      const pair<double,double>& p2 = points[i];
-      const pair<double,double> normalVector = {p2.second - p1.second,
-                                                -(p2.first - p1.first)};
-      const double top = (normalVector.first*p1.first +
-                          normalVector.second*p1.second);
-      halfPlanes.push_back({normalVector, top});
-    }
-
-    return {
-      isValidPolygon,
-      centroid,
-      points,
-      thetas,
-      halfPlanes,
-      computeShadowLines(points),
-    };
-  }
-  else
-  {
-    bool useX = false;
-    for (size_t iStart = 0; iStart < shadow.size() - 1; ++iStart)
-    {
-      if (shadow[iStart].first != shadow[iStart+1].first)
-      {
-        useX = true;
-        break;
-      }
-    }
-
-    vector<pair<double,double>> points;
-    points.reserve(2);
-    if (useX)
-    {
-      auto compare =
-        [](const pair<double,double>& a, const pair<double,double>& b)
-        {
-          return a.first < b.first;
-        };
-
-      points.push_back(*std::min_element(shadow.begin(), shadow.end(), compare));
-      points.push_back(*std::max_element(shadow.begin(), shadow.end(), compare));
-    }
-    else
-    {
-      auto compare =
-        [](const pair<double,double>& a, const pair<double,double>& b)
-        {
-          return a.second < b.second;
-        };
-
-      points.push_back(*std::min_element(shadow.begin(), shadow.end(), compare));
-      points.push_back(*std::max_element(shadow.begin(), shadow.end(), compare));
-    }
-
-    return {
-      isValidPolygon,
-      {INFINITY,INFINITY},
-      points,
-      {},
-      {},
-      computeShadowLines(points),
-    };
-  }
 }
 
 LatticeBox computeLatticeBox(
@@ -1088,7 +734,7 @@ bool tryProveGridCodeZeroImpossible(
   double r,
   double rSquared,
   double vertexBuffer[],
-  vector<vector<PolygonData>>& cachedShadows,
+  vector<vector<PolygonInfo>>& cachedShadows,
   vector<vector<BoundingBox2D>>& cachedShadowBoundingBoxes,
   vector<vector<LatticeBox>>& cachedLatticeBoxes,
   size_t frameNumber)
@@ -1104,7 +750,7 @@ bool tryProveGridCodeZeroImpossible(
 
   if (frameNumber == cachedShadowBoundingBoxes.size())
   {
-    vector<PolygonData> shadowByModule;
+    vector<PolygonInfo> shadowByModule;
     shadowByModule.reserve(domainToPlaneByModule.size());
 
     vector<BoundingBox2D> boundingBoxByModule;
@@ -1133,7 +779,7 @@ bool tryProveGridCodeZeroImpossible(
       }
       else
       {
-        shadowByModule.push_back(computePolygonData(shadow));
+        shadowByModule.push_back(PolygonInfo(shadow));
       }
     }
 
@@ -1191,9 +837,9 @@ bool tryProveGridCodeZeroImpossible(
         latticePoint.first -= shift.first;
         latticePoint.second -= shift.second;
         foundLatticeCollision =
-          pointDistanceFromShadowSquared(latticePoint,
-                                         cachedShadows[frameNumber][iModule],
-                                         numDims) <= rSquared;
+          distToConvexPolygonSquared(
+            latticePoint, cachedShadows[frameNumber][iModule]
+            ) <= rSquared;
       }
     }
 
@@ -1245,7 +891,7 @@ bool findGridCodeZeroHelper(
   double rSquaredPositive,
   double rSquaredNegative,
   double vertexBuffer[],
-  vector<vector<PolygonData>>& cachedShadows,
+  vector<vector<PolygonInfo>>& cachedShadows,
   vector<vector<BoundingBox2D>>& cachedShadowBoundingBoxes,
   vector<vector<LatticeBox>>& cachedLatticeBoxes,
   size_t frameNumber,
@@ -1422,7 +1068,7 @@ void findGridCodeZeroThread(size_t iThread, ExpansionState& state)
 
     // Perform the task.
 
-    vector<vector<PolygonData>> cachedShadows;
+    vector<vector<PolygonInfo>> cachedShadows;
     vector<vector<BoundingBox2D>> cachedShadowBoundingBoxes;
     vector<vector<LatticeBox>> cachedLatticeBoxes;
 
@@ -1588,7 +1234,7 @@ bool gridcodingrange::findGridCodeZero(
     inverseLatticeBasisByModule.push_back(invert2DMatrix(latticeBasis));
   }
 
-  vector<vector<PolygonData>> cachedShadows;
+  vector<vector<PolygonInfo>> cachedShadows;
   vector<vector<BoundingBox2D>> cachedShadowBoundingBoxes;
   vector<vector<LatticeBox>> cachedLatticeBoxes;
 
@@ -1939,7 +1585,7 @@ bool tryProveGridCodeZeroImpossible_noModulo_1D(
     const pair<double,double> p2 = transformND(domainToPlaneByModule[iModule],
                                                &point2);
 
-    if (!lineSegmentIntersectsCircle(p1, p2, {0.0, 0.0}, rSquared))
+    if (distToSegmentSquared({0.0, 0.0}, p1, p2) > rSquared)
     {
       // This module never gets near grid code zero for the provided range of
       // locations. So this range can't possibly contain grid code zero.
@@ -1958,7 +1604,7 @@ bool tryProveGridCodeZeroImpossible_noModulo(
   double r,
   double rSquared,
   double vertexBuffer[],
-  vector<vector<PolygonData>>& cachedShadows,
+  vector<vector<PolygonInfo>>& cachedShadows,
   size_t frameNumber)
 {
   if (numDims == 1)
@@ -1971,14 +1617,14 @@ bool tryProveGridCodeZeroImpossible_noModulo(
 
   if (frameNumber == cachedShadows.size())
   {
-    vector<PolygonData> shadowByModule;
+    vector<PolygonInfo> shadowByModule;
     shadowByModule.reserve(domainToPlaneByModule.size());
 
     for (size_t iModule = 0; iModule < domainToPlaneByModule.size(); iModule++)
     {
       const vector<pair<double, double>> shadow = getShadowConvexHull(
         domainToPlaneByModule[iModule], numDims, dims, vertexBuffer);
-      shadowByModule.push_back(computePolygonData(shadow));
+      shadowByModule.push_back(PolygonInfo(shadow));
     }
 
     cachedShadows.push_back(shadowByModule);
@@ -1989,9 +1635,9 @@ bool tryProveGridCodeZeroImpossible_noModulo(
     const pair<double,double> shift =
       transformND(domainToPlaneByModule[iModule], x0);
 
-    if (!(pointDistanceFromShadowSquared({-shift.first, -shift.second},
-                                         cachedShadows[frameNumber][iModule],
-                                         numDims) <= rSquared))
+    if (distToConvexPolygonSquared({-shift.first, -shift.second},
+                                   cachedShadows[frameNumber][iModule])
+        > rSquared)
     {
       // This module never gets near grid code zero for the provided range of
       // locations. So this range can't possibly contain grid code zero.
@@ -2011,7 +1657,7 @@ bool findGridCodeZeroHelper_noModulo(
   double rSquaredPositive,
   double rSquaredNegative,
   double vertexBuffer[],
-  vector<vector<PolygonData>>& cachedShadows,
+  vector<vector<PolygonInfo>>& cachedShadows,
   size_t frameNumber,
   std::atomic<bool>& shouldContinue)
 {
@@ -2081,7 +1727,7 @@ bool findGridCodeZero_noModulo(
 
   NTA_ASSERT(domainToPlaneByModule[0].size() == 2);
 
-  vector<vector<PolygonData>> cachedShadows;
+  vector<vector<PolygonInfo>> cachedShadows;
 
   // Add a small epsilon to handle situations where floating point math causes a
   // vertex to be non-zero-overlapping here and zero-overlapping in

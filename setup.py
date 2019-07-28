@@ -17,8 +17,9 @@ class get_pybind_include(object):
 
 
 sources = [
-    'src/pyextension/gridcodingrange_module.cpp',
+    'src/distance_from_polygon.cpp',
     'src/grid_coding_range.cpp',
+    'src/pyextension/gridcodingrange_module.cpp',
 ]
 
 

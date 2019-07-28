@@ -699,6 +699,40 @@ namespace {
                        readoutResolution));
   }
 
+  /**
+   * This configuration causes the query rectangle to projected into a long
+   * skinny polygon. A lattice point lies just beyond that polygon, and it
+   * overlaps the polygon given this phase resolution. The point-within-polygon
+   * code sends a ray from the polygon's centroid to this lattice point and it
+   * uses that ray to figure out which line it needs to check. It's tempting to
+   * believe that the distance-from-polygon code can use this same trick, but
+   * this test serves as a counterexample. In this example, the lattice point is
+   * nearest to a different edge of the polygon, not the edge intersected by the
+   * ray from the centroid to the lattice point.
+   */
+  TEST(GridUniquenessTest, SpecificRegressionTest2)
+  {
+    const vector<vector<vector<double>>> A = {{{0.3219036345786383, -0.5715108200503918},
+                                               {0.38397448074511314, 0.10075272793446001}},
+                                              {{0.015710240766668767, -0.029339426539530814},
+                                               {0.652071115450514, 0.23298983628080752}},
+                                              {{-0.29021547130167635, -0.22604087057591798},
+                                               {0.08669276235211387, 0.41127392987271916}},
+                                              {{-0.2474131962195408, 0.2213900803989286},
+                                               {0.22065694234010563, -0.21296441800663152}}};
+    const vector<vector<vector<double>>> L = {{{1.0, 0.5000000000000001}, {0.0, 0.8660254037844386}},
+                                              {{1.0, 0.5000000000000001}, {0.0, 0.8660254037844386}},
+                                              {{1.0, 0.5000000000000001}, {0.0, 0.8660254037844386}},
+                                              {{1.0, 0.5000000000000001}, {0.0, 0.8660254037844386}}};
+    const vector<double> x0 = {57.196, 80.0824};
+    const vector<double> dims = {0.577738, 0.800824};
+    const double phr = 0.2;
+
+    // Grid code zero is present at {57.70329886050883, 80.48284436142055}
+    ASSERT_TRUE(
+      findGridCodeZero(A, L, x0, dims, phr));
+  }
+
   TEST(GridUniquenessTest, DeterministicDespiteMultithreading)
   {
     // This is a previously randomly-generated matrix that triggers multiple
