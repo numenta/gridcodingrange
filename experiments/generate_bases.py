@@ -60,11 +60,14 @@ def random_point_on_circle():
     return np.array([np.cos(r), np.sin(r)])
 
 
-def create_params(m, k, orthogonal):
+def create_params(m, k, orthogonal, normalizeScales=True):
     B = np.zeros((m,k,k))
     A = np.zeros((m,2,k))
     # S = np.sqrt(2)**np.arange(m)
     S = np.ones(m) + np.random.sample(m)
+
+    if normalizeScales:
+        S /= np.mean(S)
 
     for m_ in range(m):
         if k==1:
@@ -103,7 +106,6 @@ def processCubeQuery(query):
         if result == -1.0:
             print("Couldn't find bin smaller than {} for query {}".format(
                 upperBound, A.tolist()))
-            return None
 
         return result
     except RuntimeError as e:
@@ -127,7 +129,6 @@ def processRectangleQuery(query):
         if len(result) == 0:
             print("Couldn't find bin smaller than {} for query {}".format(
                 upperBound, A.tolist()))
-            return None
 
         return result
     except RuntimeError as e:
@@ -154,7 +155,7 @@ class IterableWithLen(object):
 
 class Scheduler(object):
     def __init__(self, folderpath, numTrials, ms, ks, phaseResolutions,
-                 measureRectangle, allowOblique):
+                 measureRectangle, allowOblique, normalizeScales, filtered):
         self.folderpath = folderpath
         self.numTrials = numTrials
         self.ms = ms
@@ -162,6 +163,7 @@ class Scheduler(object):
         self.phaseResolutions = phaseResolutions
         self.measureRectangle = measureRectangle
         self.allowOblique = allowOblique
+        self.normalizeScales = normalizeScales
 
         self.failureCounter = 0
         self.successCounter = 0
@@ -174,6 +176,8 @@ class Scheduler(object):
                                    for m in ms
                                    for k in ks
                                    if 2*m >= k]
+
+        self.max_binsidelength = (1.0 if filtered else None)
 
         for _ in range(numTrials):
             self.queueNewWorkItem()
@@ -194,7 +198,7 @@ class Scheduler(object):
     def queueNewWorkItem(self):
         forceOrthogonal = not self.allowOblique
         resultDict = create_params(max(self.ms), int(math.ceil(max(self.ks))),
-                                   forceOrthogonal)
+                                   forceOrthogonal, self.normalizeScales)
         resultDict["phase_resolutions"] = self.phaseResolutions
         resultDict["ms"] = self.ms
         resultDict["ks"] = self.ks
@@ -212,7 +216,7 @@ class Scheduler(object):
         else:
             operation = processCubeQuery
 
-        context = ContextForSingleMatrix(self, resultDict)
+        context = ContextForSingleMatrix(self, resultDict, self.max_binsidelength)
         self.pool.map_async(operation, queries, callback=context.onFinished)
 
 
@@ -269,13 +273,20 @@ class Scheduler(object):
 
 
 class ContextForSingleMatrix(object):
-    def __init__(self, scheduler, resultDict):
+    def __init__(self, scheduler, resultDict, max_binsidelength):
         self.scheduler = scheduler
         self.resultDict = resultDict
+        self.max_binsidelength = max_binsidelength
 
     def onFinished(self, results):
-        if any(result is None
-               for result in results):
+        failure = any(result is None or result == -1
+                      for result in results)
+
+        if self.max_binsidelength is not None:
+            failure = failure or any(result >= self.max_binsidelength
+                                     for result in results)
+
+        if failure:
             self.scheduler.handleFailure(self.resultDict)
         else:
             self.scheduler.handleSuccess(self.resultDict, results)
@@ -290,6 +301,8 @@ if __name__ == "__main__":
     parser.add_argument("--phaseResolution", type=float, default=[0.2], nargs="+")
     parser.add_argument("--measureRectangle", action="store_true")
     parser.add_argument("--allowOblique", action="store_true")
+    parser.add_argument("--normalizeScales", action="store_true")
+    parser.add_argument("--filtered", action="store_true")
 
     args = parser.parse_args()
 
@@ -297,4 +310,5 @@ if __name__ == "__main__":
     folderpath = os.path.join(cwd, args.folderName)
 
     Scheduler(folderpath, args.numTrials, args.m, args.k, args.phaseResolution,
-              args.measureRectangle, args.allowOblique).join()
+              args.measureRectangle, args.allowOblique, args.normalizeScales,
+              args.filtered).join()
