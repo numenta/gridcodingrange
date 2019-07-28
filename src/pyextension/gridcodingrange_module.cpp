@@ -148,6 +148,8 @@ PYBIND11_MODULE(_gridcodingrange, m)
   m.def("computeGridUniquenessHypercube", &computeGridUniquenessHypercube);
   m.def("computeBinSidelength", &computeBinSidelength);
   m.def("computeBinRectangle", &computeBinRectangle);
+  m.def("resetCheckPolygonThreshold", &gridcodingrange::resetCheckPolygonThreshold);
+  m.def("setCheckPolygonThreshold", &gridcodingrange::setCheckPolygonThreshold);
 
 #ifdef VERSION_INFO
   m.attr("__version__") = VERSION_INFO;

@@ -666,7 +666,17 @@ bool tryProveGridCodeZeroImpossible_1D(
   return false;
 }
 
-const double shadowWidthThreshold = 0.5;
+double g_checkPolygonThreshold = 0.5;
+
+void gridcodingrange::resetCheckPolygonThreshold()
+{
+  g_checkPolygonThreshold = 0.5;
+}
+
+void gridcodingrange::setCheckPolygonThreshold(double threshold)
+{
+  g_checkPolygonThreshold = threshold;
+}
 
 BoundingBox2D computeBoundingBox(const vector<pair<double,double>>& shadow)
 {
@@ -772,8 +782,8 @@ bool tryProveGridCodeZeroImpossible(
         computeLatticeBox(boundingBox, inverseLatticeBasisByModule[iModule],
                           r));
 
-      if (boundingBox.xmax - boundingBox.xmin > shadowWidthThreshold ||
-          boundingBox.ymax - boundingBox.ymin > shadowWidthThreshold)
+      if (boundingBox.xmax - boundingBox.xmin > g_checkPolygonThreshold ||
+          boundingBox.ymax - boundingBox.ymin > g_checkPolygonThreshold)
       {
         shadowByModule.push_back({});
       }
@@ -826,8 +836,8 @@ bool tryProveGridCodeZeroImpossible(
       // To get the best of both worlds, we do non-thorough checks when the
       // shadow is large, and begin doing thorough checks when the shadow is
       // small.
-      if (xmax - xmin > shadowWidthThreshold ||
-          ymax - ymin > shadowWidthThreshold)
+      if (xmax - xmin > g_checkPolygonThreshold ||
+          ymax - ymin > g_checkPolygonThreshold)
       {
         // Rely on the bounding box check.
         foundLatticeCollision = true;

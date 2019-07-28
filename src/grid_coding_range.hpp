@@ -238,6 +238,17 @@ namespace gridcodingrange
       double upperBound = 2048.0,
       double timeout = -1.0);
 
+
+  /**
+   * Intended for testing.
+   */
+  void resetCheckPolygonThreshold();
+
+  /**
+   * Intended for testing.
+   */
+  void setCheckPolygonThreshold(double threshold);
+
 } // end namespace gridcodingrange
 
 #endif // NTA_GRIDCODINGRANGE

@@ -197,3 +197,17 @@ def computeBinRectangle(domainToPlaneByModule, phaseResolution,
 
     return _gridcodingrange.computeBinRectangle(
         domainToPlaneByModule, phaseResolution, resultPrecision, upperBound, timeout)
+
+
+def resetCheckPolygonThreshold():
+    '''
+    Intended for testing.
+    '''
+    _gridcodingrange.resetCheckPolygonThreshold();
+
+
+def setCheckPolygonThreshold(threshold):
+    '''
+    Intended for testing.
+    '''
+    _gridcodingrange.setCheckPolygonThreshold(threshold);
