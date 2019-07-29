@@ -24,6 +24,7 @@ import math
 import multiprocessing
 import os
 import pickle
+import sys
 import threading
 
 import numpy as np
@@ -186,7 +187,12 @@ class Scheduler(object):
     def join(self):
         try:
             # Interrupts (ctrl+c) have no effect without a timeout.
-            self.finishedEvent.wait(9999999999)
+            if sys.version_info >= (3, 0):
+                self.finishedEvent.wait()
+            else:
+                # Python 2
+                # Interrupts (ctrl+c) have no effect without a timeout.
+                self.finishedEvent.wait(9999999999)
             self.pool.close()
             self.pool.join()
         except KeyboardInterrupt:
