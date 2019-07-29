@@ -180,7 +180,9 @@ class Scheduler(object):
 
         self.max_binsidelength = (1.0 if filtered else None)
 
-        for _ in range(numTrials):
+        # Keep running tasks on all CPUs until we have generated enough results,
+        # then kill the remaining workers.
+        for _ in range(multiprocessing.cpu_count()):
             self.queueNewWorkItem()
 
 
@@ -193,7 +195,8 @@ class Scheduler(object):
                 # Python 2
                 # Interrupts (ctrl+c) have no effect without a timeout.
                 self.finishedEvent.wait(9999999999)
-            self.pool.close()
+            # Kill remaining workers.
+            self.pool.terminate()
             self.pool.join()
         except KeyboardInterrupt:
             print("Caught KeyboardInterrupt, terminating workers")
@@ -237,8 +240,8 @@ class Scheduler(object):
         filepath = os.path.join(failureFolder, filename)
 
         with open(filepath, "w") as fout:
-            print("Saving", filepath, "({} remaining)".format(
-                self.numTrials - self.successCounter))
+            print("Saving {} ({} remaining)".format(
+                filepath, self.numTrials - self.successCounter))
             pickle.dump(resultDict, fout)
 
         self.queueNewWorkItem()
@@ -276,6 +279,8 @@ class Scheduler(object):
 
         if self.successCounter == self.numTrials:
             self.finishedEvent.set()
+        else:
+            self.queueNewWorkItem()
 
 
 class ContextForSingleMatrix(object):
