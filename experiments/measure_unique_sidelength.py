@@ -75,8 +75,7 @@ def measureSidelengths(folderPath):
         ms = result_dict["ms"]
         ks = result_dict["ks"]
         phase_resolutions = result_dict["phase_resolutions"]
-        S = result_dict["S"]
-        A = result_dict["A"]
+
         bin_sidelengths = result_dict["bin_sidelength"]
         L = create_L(max(ms))
 
@@ -89,9 +88,15 @@ def measureSidelengths(folderPath):
         max_scale_factors = np.full_like(bin_sidelengths, np.nan)
 
         for phr, m, k in param_combinations:
-            A_ = A[:m, :, :int(math.ceil(k))]
-            sort_order = np.argsort(S[:m])[::-1]
-            A_ = A_[sort_order, :, :]
+
+            if "A" in result_dict:
+                A_ = result_dict["A"][:m, :, :int(math.ceil(k))]
+                S = result_dict["S"]
+                sort_order = np.argsort(S[:m])[::-1]
+                A_ = A_[sort_order, :, :]
+            else:
+                A_ = result_dict["every_A"][(phr, m, k)]
+
             L_ = L[:m]
 
             scaledbox = np.ones(int(math.ceil(k)), dtype='float')

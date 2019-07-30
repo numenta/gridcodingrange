@@ -87,6 +87,167 @@ def create_params(m, k, orthogonal, normalizeScales=True):
     }
 
 
+def processCubeQuery1(query):
+    phr, m, k, forceOrthogonal, normalizeScales, max_binsidelength = query
+
+    upperBound = 4.0
+    timeout = 60.0 * 10.0 # 10 minutes
+    resultResolution = 0.01
+
+    numDiscardedTooBig = 0
+    numDiscardedTimeout = 0
+
+    while True:
+        expDict = create_params(m, int(math.ceil(k)), forceOrthogonal,
+                                normalizeScales)
+
+        # Rearrange to make the algorithms faster.
+        sortOrder = np.argsort(expDict["S"])[::-1]
+        expDict["S"] = expDict["S"][sortOrder]
+        expDict["A"] = expDict["A"][sortOrder,:,:]
+
+        try:
+            binSidelength = computeBinSidelength(expDict["A"], phr,
+                                                 resultResolution,
+                                                 upperBound, timeout)
+
+            if (binSidelength == -1.0 or
+                (max_binsidelength is not None and
+                 binSidelength >= max_binsidelength)):
+                numDiscardedTooBig += 1
+                continue
+
+            expDict["bin_sidelength"] = binSidelength
+
+            return (expDict, numDiscardedTooBig, numDiscardedTimeout)
+
+        except RuntimeError as e:
+            if e.message == "timeout":
+                print("Timed out on query {}".format(expDict["A"]))
+
+                numDiscardedTimeout += 1
+                continue
+            else:
+                raise
+
+
+class UniqueBasesScheduler(object):
+    def __init__(self, folderpath, numTrials, ms, ks, phaseResolutions,
+                 measureRectangle, allowOblique, normalizeScales, filtered):
+
+        assert measureRectangle == False # Not supported (yet)
+
+        self.folderpath = folderpath
+        self.numTrials = numTrials
+        self.ms = ms
+        self.ks = ks
+        self.phaseResolutions = phaseResolutions
+
+        self.failureCounter = 0
+        self.successCounter = 0
+
+        self.pool = multiprocessing.Pool()
+        self.finishedEvent = threading.Event()
+
+        max_binsidelength = (1.0 if filtered else None)
+        forceOrthogonal = not allowOblique
+        self.param_combinations = [(phr, m, k, forceOrthogonal, normalizeScales,
+                                    max_binsidelength)
+                                   for phr in phaseResolutions
+                                   for m in ms
+                                   for k in ks
+                                   if 2*m >= k]
+
+        # Keep running tasks on all CPUs until we have generated enough results,
+        # then kill the remaining workers.
+        for _ in range(multiprocessing.cpu_count()):
+            self.queueNewWorkItem()
+
+
+    def join(self):
+        try:
+            if sys.version_info >= (3, 0):
+                self.finishedEvent.wait()
+            else:
+                # Python 2
+                # Interrupts (ctrl+c) have no effect without a timeout.
+                self.finishedEvent.wait(9999999999)
+            # Kill remaining workers.
+            self.pool.terminate()
+            self.pool.join()
+        except KeyboardInterrupt:
+            print("Caught KeyboardInterrupt, terminating workers")
+            self.pool.terminate()
+            self.pool.join()
+
+
+    def queueNewWorkItem(self):
+        self.pool.map_async(processCubeQuery1, self.param_combinations,
+                            callback=self.onWorkItemFinished)
+
+
+    def onWorkItemFinished(self, results):
+        if self.successCounter == self.numTrials:
+            return
+
+        discardedTooBig = np.full((len(self.phaseResolutions),
+                                   len(self.ms),
+                                   len(self.ks)),
+                                  0, dtype="int")
+        discardedTimeout = np.full((len(self.phaseResolutions),
+                                    len(self.ms),
+                                    len(self.ks)),
+                                   0, dtype="int")
+        binSidelengths = np.full((len(self.phaseResolutions),
+                                  len(self.ms),
+                                  len(self.ks)),
+                                 np.nan, dtype="float")
+
+        everyA = {}
+        everyS = {}
+
+        for params, result in zip(self.param_combinations, results):
+            phr, m, k, _, _, _ = params
+            expDict, numDiscardedTooBig, numDiscardedTimeout = result
+
+            everyA[(phr, m, k)] = expDict["A"]
+            everyS[(phr, m, k)] = expDict["S"]
+
+            idx = (self.phaseResolutions.index(phr), self.ms.index(m),
+                   self.ks.index(k))
+            binSidelengths[idx] = expDict["bin_sidelength"]
+            discardedTooBig[idx] += numDiscardedTooBig
+            discardedTimeout[idx] += numDiscardedTimeout
+
+        resultDict = {
+            "phase_resolutions": self.phaseResolutions,
+            "ms": self.ms,
+            "ks": self.ks,
+            "discarded_too_big": discardedTooBig,
+            "discarded_timeout": discardedTimeout,
+            "bin_sidelength": binSidelengths,
+            "every_A": everyA,
+            "every_S": everyS,
+        }
+
+        # Save the dict
+        successFolder = os.path.join(self.folderpath, "in")
+        if self.successCounter == 0:
+            os.makedirs(successFolder)
+        filepath = os.path.join(successFolder, "in_{}.p".format(
+            self.successCounter))
+        self.successCounter += 1
+        with open(filepath, "wb") as fout:
+            print("Saving {} ({} remaining)".format(
+                filepath, self.numTrials - self.successCounter))
+            pickle.dump(resultDict, fout)
+
+        if self.successCounter == self.numTrials:
+            self.finishedEvent.set()
+        else:
+            self.queueNewWorkItem()
+
+
 def getQuery(A, S, m, k, phase_resolution):
     A_ = A[:m, :, :k]
     sort_order = np.argsort(S[:m])[::-1]
@@ -95,7 +256,7 @@ def getQuery(A, S, m, k, phase_resolution):
     return (A_, phase_resolution)
 
 
-def processCubeQuery(query):
+def processCubeQuery2(query):
     A, phase_resolution = query
     resultResolution = 0.01
     upperBound = 2048.0
@@ -154,7 +315,7 @@ class IterableWithLen(object):
 
 
 
-class Scheduler(object):
+class ReuseBasesScheduler(object):
     def __init__(self, folderpath, numTrials, ms, ks, phaseResolutions,
                  measureRectangle, allowOblique, normalizeScales, filtered):
         self.folderpath = folderpath
@@ -223,7 +384,7 @@ class Scheduler(object):
         if self.measureRectangle:
             operation = processRectangleQuery
         else:
-            operation = processCubeQuery
+            operation = processCubeQuery2
 
         context = ContextForSingleMatrix(self, resultDict, self.max_binsidelength)
         self.pool.map_async(operation, queries, callback=context.onFinished)
@@ -239,7 +400,7 @@ class Scheduler(object):
 
         filepath = os.path.join(failureFolder, filename)
 
-        with open(filepath, "w") as fout:
+        with open(filepath, "wb") as fout:
             print("Saving {} ({} remaining)".format(
                 filepath, self.numTrials - self.successCounter))
             pickle.dump(resultDict, fout)
@@ -248,6 +409,9 @@ class Scheduler(object):
 
 
     def handleSuccess(self, resultDict, results):
+        if self.successCounter == self.numTrials:
+            return
+
         # Insert results into dict
         if self.measureRectangle:
             rectangles = {}
@@ -314,12 +478,16 @@ if __name__ == "__main__":
     parser.add_argument("--allowOblique", action="store_true")
     parser.add_argument("--normalizeScales", action="store_true")
     parser.add_argument("--filtered", action="store_true")
+    parser.add_argument("--reuseBases", action="store_true")
 
     args = parser.parse_args()
 
     cwd = os.path.dirname(os.path.realpath(__file__))
     folderpath = os.path.join(cwd, args.folderName)
 
-    Scheduler(folderpath, args.numTrials, args.m, args.k, args.phaseResolution,
-              args.measureRectangle, args.allowOblique, args.normalizeScales,
-              args.filtered).join()
+    SchedulerClass = (ReuseBasesScheduler if args.reuseBases
+                      else UniqueBasesScheduler)
+
+    SchedulerClass(folderpath, args.numTrials, args.m, args.k, args.phaseResolution,
+                   args.measureRectangle, args.allowOblique, args.normalizeScales,
+                   args.filtered).join()
