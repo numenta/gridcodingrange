@@ -211,6 +211,7 @@ public:
   */
   virtual ~LogItem()
   {
+    std::ostream *out = &std::cerr;
     std::string slevel;
     switch (level_)
     {
@@ -222,6 +223,7 @@ public:
       break;
     case info:
       slevel = "INFO: ";
+      out = &std::cout;
       break;
     case error:
       slevel = "ERR:";
@@ -231,12 +233,12 @@ public:
       break;
     }
 
-    std::cerr << slevel << "  " << msg_.str();
+    (*out) << slevel << "  " << msg_.str();
 
     if (level_ == error)
-      std::cerr << " [" << filename_ << " line " << lineno_ << "]";
+      (*out) << " [" << filename_ << " line " << lineno_ << "]";
 
-    std::cerr << std::endl;
+    (*out) << std::endl;
   }
 
   /*
