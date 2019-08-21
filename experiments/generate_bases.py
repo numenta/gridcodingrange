@@ -64,8 +64,7 @@ def random_point_on_circle():
 def create_params(m, k, orthogonal, normalizeScales=True):
     B = np.zeros((m,k,k))
     A = np.zeros((m,2,k))
-    # S = np.sqrt(2)**np.arange(m)
-    S = np.ones(m) + np.random.sample(m)
+    S = 1 + np.random.normal(size=m, scale=0.2)
 
     if normalizeScales:
         S /= np.mean(S)
@@ -248,6 +247,31 @@ class UniqueBasesScheduler(object):
             self.queueNewWorkItem()
 
 
+def create_submatrixing_params(m, k, normalizeScales=True):
+    # Create a 3D projection. Then for each module, append k-3 columns with
+    # lengths U(0, maxlength) where maxlength is the longest of the first 3
+    # columns.
+
+    params = create_params(m, 3, orthogonal=True,
+                           normalizeScales=normalizeScales)
+
+    A = np.zeros((m,2,k))
+    A[:,:,:3] = params["A"]
+
+    for m_ in range(m):
+        maxlength = max(np.linalg.norm(A[m_,:,k_])
+                        for k_ in range(3))
+
+        for k_ in range(3, k):
+            length = np.random.uniform(0, maxlength)
+            A[m_,:,k_] = random_point_on_circle()*length
+
+    return {
+        "A": A[:,:,:k],
+        "S": params["S"],
+    }
+
+
 def getQuery(A, S, m, k, phase_resolution):
     A_ = A[:m, :, :k]
     sort_order = np.argsort(S[:m])[::-1]
@@ -317,15 +341,15 @@ class IterableWithLen(object):
 
 class ReuseBasesScheduler(object):
     def __init__(self, folderpath, numTrials, ms, ks, phaseResolutions,
-                 measureRectangle, allowOblique, normalizeScales, filtered):
+                 measureRectangle, normalizeScales, buildupBases, filtered):
         self.folderpath = folderpath
         self.numTrials = numTrials
         self.ms = ms
         self.ks = ks
         self.phaseResolutions = phaseResolutions
         self.measureRectangle = measureRectangle
-        self.allowOblique = allowOblique
         self.normalizeScales = normalizeScales
+        self.buildupBases = buildupBases
 
         self.failureCounter = 0
         self.successCounter = 0
@@ -366,9 +390,15 @@ class ReuseBasesScheduler(object):
 
 
     def queueNewWorkItem(self):
-        forceOrthogonal = not self.allowOblique
-        resultDict = create_params(max(self.ms), int(math.ceil(max(self.ks))),
-                                   forceOrthogonal, self.normalizeScales)
+        if self.buildupBases:
+            resultDict = create_submatrixing_params(max(self.ms),
+                                                    int(math.ceil(max(self.ks))),
+                                                    self.normalizeScales)
+        else:
+            resultDict = create_params(max(self.ms),
+                                       int(math.ceil(max(self.ks))),
+                                       orthogonal=True,
+                                       normalizeScales=self.normalizeScales)
         resultDict["phase_resolutions"] = self.phaseResolutions
         resultDict["ms"] = self.ms
         resultDict["ks"] = self.ks
@@ -479,6 +509,7 @@ if __name__ == "__main__":
     parser.add_argument("--normalizeScales", action="store_true")
     parser.add_argument("--filtered", action="store_true")
     parser.add_argument("--reuseBases", action="store_true")
+    parser.add_argument("--buildupBases", action="store_true")
 
     args = parser.parse_args()
 
@@ -488,6 +519,20 @@ if __name__ == "__main__":
     SchedulerClass = (ReuseBasesScheduler if args.reuseBases
                       else UniqueBasesScheduler)
 
-    SchedulerClass(folderpath, args.numTrials, args.m, args.k, args.phaseResolution,
-                   args.measureRectangle, args.allowOblique, args.normalizeScales,
-                   args.filtered).join()
+    params = {
+        "folderpath": folderpath,
+        "numTrials": args.numTrials,
+        "ms": args.m,
+        "ks": args.k,
+        "phaseResolutions": args.phaseResolution,
+        "measureRectangle": args.measureRectangle,
+        "normalizeScales": args.normalizeScales,
+        "filtered": args.filtered,
+    }
+
+    if args.reuseBases:
+        params["buildupBases"] = args.buildupBases
+        ReuseBasesScheduler(**params).join()
+    else:
+        params["allowOblique"] = args.allowOblique
+        UniqueBasesScheduler(**params).join()
