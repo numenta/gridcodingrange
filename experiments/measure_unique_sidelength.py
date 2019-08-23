@@ -44,7 +44,7 @@ def extractNumber(filename):
     return int(re.match("in_([0-9]+).p", filename).groups()[0])
 
 
-def measureSidelengths(folderPath):
+def measureSidelengths(folderPath, scaleMinimalBox):
     inPath = os.path.join(folderPath, "in")
     outPath = os.path.join(folderPath, "out")
 
@@ -75,8 +75,8 @@ def measureSidelengths(folderPath):
         ms = result_dict["ms"]
         ks = result_dict["ks"]
         phase_resolutions = result_dict["phase_resolutions"]
+        rectangles = result_dict["rectangles"]
 
-        bin_sidelengths = result_dict["bin_sidelength"]
         L = create_L(max(ms))
 
         param_combinations = [(phr, m, k)
@@ -85,7 +85,9 @@ def measureSidelengths(folderPath):
                               for k in ks
                               if 2*m >= k]
 
-        max_scale_factors = np.full_like(bin_sidelengths, np.nan)
+        max_scale_factors = np.full((len(phase_resolutions),
+                                     len(ms), len(ks)),
+                                    np.nan, dtype="float")
 
         for phr, m, k in param_combinations:
 
@@ -99,15 +101,15 @@ def measureSidelengths(folderPath):
 
             L_ = L[:m]
 
-            scaledbox = np.ones(int(math.ceil(k)), dtype='float')
+            ignorebox = 0.51*rectangles[(phr, m, k)]
+            if scaleMinimalBox:
+                scaledbox = ignorebox
+            else:
+                scaledbox = np.ones(int(math.ceil(k)), dtype='float')
+
             partial_final_dim = k - math.floor(k)
             if partial_final_dim > 0:
                 scaledbox[-1] = partial_final_dim
-
-            bin_sidelength = bin_sidelengths[phase_resolutions.index(phr),
-                                             ms.index(m), ks.index(k)]
-            ignorebox = (0.51*bin_sidelength)*np.ones(int(math.ceil(k)),
-                                                      dtype='float')
 
             max_scale_factor, _ = computeCodingRange(
                 A_, L_, scaledbox, ignorebox, phr,
@@ -123,81 +125,15 @@ def measureSidelengths(folderPath):
             pickle.dump(result_dict, fout)
 
 
-def measureNormalizedSidelengths(folderPath):
-    inPath = os.path.join(folderPath, "in")
-    outPath = os.path.join(folderPath, "out")
-
-    if not os.path.exists(outPath):
-        os.makedirs(outPath)
-
-    files = sorted((filename
-                    for filename in os.listdir(inPath)
-                    if re.match("in_[0-9]+.p", filename)),
-                   key=extractNumber)
-
-    for filename in files:
-        inFilePath = os.path.join(folderPath, "in", filename)
-
-        iFile = int(re.match("in_([0-9]+).p", filename).groups()[0])
-
-        print("Computing result", iFile)
-
-        outFilePath = os.path.join(folderPath, "out", "res_{}.p".format(iFile))
-
-        with open(inFilePath, "rb") as fin:
-            try:
-                result_dict = pickle.load(fin)
-            except UnicodeDecodeError:
-                # Probably loading Python2 pickled file from Python3
-                result_dict = pickle.load(fin, encoding='latin1')
-
-        ms = result_dict["ms"]
-        ks = result_dict["ks"]
-        phase_resolutions = result_dict["phase_resolutions"]
-        rectangles = result_dict["rectangles"]
-
-        A = result_dict["A"]
-        L = create_L(max(ms))
-
-        unique_sidelengths = np.full((len(phase_resolutions),
-                                      len(ms), len(ks)),
-                                     np.nan, dtype="float")
-
-        for (phr, m, k), rectangle in rectangles.items():
-            A_ = A[:m, :, :k].copy()
-            for iDim in range(k):
-                A_[:,:,iDim] *= rectangle[iDim]
-
-            L_ = L[:m]
-
-            # Normalizing puts the edge of the bin at approximately 0.5.
-            unique_sidelength, _ = computeGridUniquenessHypercube(
-                A_, L_, phr,
-                ignoredCenterDiameter=0.51)
-
-            unique_sidelengths[phase_resolutions.index(phr),
-                               ms.index(m), ks.index(k)] = unique_sidelength
-
-        result_dict["width"] = unique_sidelengths
-
-        with open(outFilePath, "wb") as fout:
-            print("Saving {}".format(outFilePath))
-            pickle.dump(result_dict, fout)
-
-
-
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("folderName", type=str)
-    parser.add_argument("--normalizeBasis", action="store_true")
+    parser.add_argument("--scaleMinimalBox", action="store_true")
 
     args = parser.parse_args()
 
     cwd = os.path.dirname(os.path.realpath(__file__))
     folderPath = os.path.join(cwd, args.folderName)
 
-    if args.normalizeBasis:
-        measureNormalizedSidelengths(folderPath)
-    else:
-        measureSidelengths(folderPath)
+    measureSidelengths(folderPath, args.scaleMinimalBox)

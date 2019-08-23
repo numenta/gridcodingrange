@@ -30,7 +30,7 @@ import threading
 import numpy as np
 from scipy.stats import ortho_group
 
-from gridcodingrange import computeBinSidelength, computeBinRectangle
+from gridcodingrange import computeBinRectangle
 
 
 def create_bases(k, s):
@@ -86,7 +86,7 @@ def create_params(m, k, orthogonal, normalizeScales=True):
     }
 
 
-def processCubeQuery1(query):
+def processRectangleQuery1(query):
     phr, m, k, forceOrthogonal, normalizeScales, max_binsidelength = query
 
     upperBound = 4.0
@@ -106,18 +106,17 @@ def processCubeQuery1(query):
         expDict["A"] = expDict["A"][sortOrder,:,:]
 
         try:
-            binSidelength = computeBinSidelength(expDict["A"], phr,
-                                                 resultResolution,
-                                                 upperBound, timeout)
+            rect = computeBinRectangle(expDict["A"], phr, resultResolution,
+                                       upperBound, timeout)
+            rect = np.asarray(rect, dtype="float")
 
-            if (binSidelength == -1.0 or
+            if (len(rect) == 0 or
                 (max_binsidelength is not None and
-                 binSidelength >= max_binsidelength)):
+                 np.any(rect >= max_binsidelength))):
                 numDiscardedTooBig += 1
                 continue
 
-            expDict["bin_sidelength"] = binSidelength
-
+            expDict["rect"] = rect
             return (expDict, numDiscardedTooBig, numDiscardedTimeout)
 
         except RuntimeError as e:
@@ -132,9 +131,7 @@ def processCubeQuery1(query):
 
 class UniqueBasesScheduler(object):
     def __init__(self, folderpath, numTrials, ms, ks, phaseResolutions,
-                 measureRectangle, allowOblique, normalizeScales, filtered):
-
-        assert measureRectangle == False # Not supported (yet)
+                 allowOblique, normalizeScales, filtered):
 
         self.folderpath = folderpath
         self.numTrials = numTrials
@@ -181,7 +178,7 @@ class UniqueBasesScheduler(object):
 
 
     def queueNewWorkItem(self):
-        self.pool.map_async(processCubeQuery1, self.param_combinations,
+        self.pool.map_async(processRectangleQuery1, self.param_combinations,
                             callback=self.onWorkItemFinished)
 
 
@@ -204,6 +201,7 @@ class UniqueBasesScheduler(object):
 
         everyA = {}
         everyS = {}
+        everyRect = {}
 
         for params, result in zip(self.param_combinations, results):
             phr, m, k, _, _, _ = params
@@ -211,10 +209,10 @@ class UniqueBasesScheduler(object):
 
             everyA[(phr, m, k)] = expDict["A"]
             everyS[(phr, m, k)] = expDict["S"]
+            everyRect[(phr, m, k)] = expDict["rect"]
 
             idx = (self.phaseResolutions.index(phr), self.ms.index(m),
                    self.ks.index(k))
-            binSidelengths[idx] = expDict["bin_sidelength"]
             discardedTooBig[idx] += numDiscardedTooBig
             discardedTimeout[idx] += numDiscardedTimeout
 
@@ -227,6 +225,7 @@ class UniqueBasesScheduler(object):
             "bin_sidelength": binSidelengths,
             "every_A": everyA,
             "every_S": everyS,
+            "rectangles": everyRect,
         }
 
         # Save the dict
@@ -280,50 +279,27 @@ def getQuery(A, S, m, k, phase_resolution):
     return (A_, phase_resolution)
 
 
-def processCubeQuery2(query):
+def processRectangleQuery2(query):
     A, phase_resolution = query
     resultResolution = 0.01
     upperBound = 2048.0
     timeout = 60.0 * 10.0 # 10 minutes
 
     try:
-        result = computeBinSidelength(A, phase_resolution, resultResolution,
-                                      upperBound, timeout)
-        if result == -1.0:
-            print("Couldn't find bin smaller than {} for query {}".format(
-                upperBound, A.tolist()))
-
-        return result
-    except RuntimeError as e:
-        if e.message == "timeout":
-            print("Timed out on query {}".format(A.tolist()))
-            return None
-        else:
-            raise
-
-
-def processRectangleQuery(query):
-    A, phase_resolution = query
-    resultResolution = 0.01
-    upperBound = 2048.0
-    timeout = 60.0 * 10.0 # 10 minutes
-
-    try:
-        result = computeBinRectangle(A, phase_resolution, resultResolution,
+        rect = computeBinRectangle(A, phase_resolution, resultResolution,
                                      upperBound, timeout)
-
-        if len(result) == 0:
+        rect = np.asarray(rect, dtype="float")
+        if len(rect) == 0:
             print("Couldn't find bin smaller than {} for query {}".format(
                 upperBound, A.tolist()))
 
-        return result
+        return rect
     except RuntimeError as e:
         if e.message == "timeout":
             print("Timed out on query {}".format(A.tolist()))
             return None
         else:
             raise
-
 
 
 class IterableWithLen(object):
@@ -338,16 +314,14 @@ class IterableWithLen(object):
         return self.iterable
 
 
-
 class ReuseBasesScheduler(object):
     def __init__(self, folderpath, numTrials, ms, ks, phaseResolutions,
-                 measureRectangle, normalizeScales, buildupBases, filtered):
+                 normalizeScales, buildupBases, filtered):
         self.folderpath = folderpath
         self.numTrials = numTrials
         self.ms = ms
         self.ks = ks
         self.phaseResolutions = phaseResolutions
-        self.measureRectangle = measureRectangle
         self.normalizeScales = normalizeScales
         self.buildupBases = buildupBases
 
@@ -411,13 +385,8 @@ class ReuseBasesScheduler(object):
         # map_async will convert this to a list if it can't get the length.
         queries = IterableWithLen(queries, len(self.param_combinations))
 
-        if self.measureRectangle:
-            operation = processRectangleQuery
-        else:
-            operation = processCubeQuery2
-
         context = ContextForSingleMatrix(self, resultDict, self.max_binsidelength)
-        self.pool.map_async(operation, queries, callback=context.onFinished)
+        self.pool.map_async(processRectangleQuery2, queries, callback=context.onFinished)
 
 
     def handleFailure(self, resultDict):
@@ -443,21 +412,11 @@ class ReuseBasesScheduler(object):
             return
 
         # Insert results into dict
-        if self.measureRectangle:
-            rectangles = {}
-            for (phr, m, k), result in zip(self.param_combinations, results):
-                rectangles[(phr, m, k)] = result
+        rectangles = {}
+        for (phr, m, k), result in zip(self.param_combinations, results):
+            rectangles[(phr, m, k)] = result
 
-            resultDict["rectangles"] = rectangles
-        else:
-            bin_sidelengths = np.full((len(self.phaseResolutions),
-                                       len(self.ms),
-                                       len(self.ks)),
-                                      np.nan, dtype="float")
-            for (phr, m, k), result in zip(self.param_combinations, results):
-                bin_sidelengths[self.phaseResolutions.index(phr), self.ms.index(m),
-                                self.ks.index(k)] = result
-            resultDict["bin_sidelength"] = bin_sidelengths
+        resultDict["rectangles"] = rectangles
 
         # Save the dict
         successFolder = os.path.join(self.folderpath, "in")
@@ -484,11 +443,11 @@ class ContextForSingleMatrix(object):
         self.max_binsidelength = max_binsidelength
 
     def onFinished(self, results):
-        failure = any(result is None or result == -1
+        failure = any(result is None or len(result) == 0
                       for result in results)
 
         if self.max_binsidelength is not None:
-            failure = failure or any(result >= self.max_binsidelength
+            failure = failure or any(np.any(result >= self.max_binsidelength)
                                      for result in results)
 
         if failure:
@@ -504,7 +463,6 @@ if __name__ == "__main__":
     parser.add_argument("--m", type=int, required=True, nargs="+")
     parser.add_argument("--k", type=float, required=True, nargs="+")
     parser.add_argument("--phaseResolution", type=float, default=[0.2], nargs="+")
-    parser.add_argument("--measureRectangle", action="store_true")
     parser.add_argument("--allowOblique", action="store_true")
     parser.add_argument("--normalizeScales", action="store_true")
     parser.add_argument("--filtered", action="store_true")
@@ -525,7 +483,6 @@ if __name__ == "__main__":
         "ms": args.m,
         "ks": args.k,
         "phaseResolutions": args.phaseResolution,
-        "measureRectangle": args.measureRectangle,
         "normalizeScales": args.normalizeScales,
         "filtered": args.filtered,
     }

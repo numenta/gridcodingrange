@@ -9,4 +9,4 @@ DATA_DIR=data/m_k_filtered/$(python -c "import time; import uuid; print('{}-{}'.
 mkdir -p ./$DATA_DIR
 
 python -u generate_bases.py $DATA_DIR --phaseResolution 0.2 --m 1 2 3 4 5 6 7 8 9 --k 3 4 5 6 --normalizeScales --filtered --reuseBases --buildupBases --numTrials 100
-python -u measure_unique_sidelength.py $DATA_DIR
+python -u measure_unique_sidelength.py --scaleMinimalBox $DATA_DIR
