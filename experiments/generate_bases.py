@@ -86,6 +86,29 @@ def create_params(m, k, orthogonal, normalizeScales=True):
     }
 
 
+def create_params2(m, k, normalizeScales=True):
+    A = np.zeros((m,2,k))
+
+    S = 1 + np.random.normal(size=m, scale=0.2)
+    if normalizeScales:
+        S /= np.mean(S)
+
+    for m_ in range(m):
+        # Choose a set of column vector lengths with mean length 1/scale
+        s_ = S[m_]
+        lengths = np.random.uniform(size=k)
+        lengths /= np.mean(lengths)
+        lengths /= S[m_]
+
+        for k_ in range(k):
+            A[m_,:,k_] = lengths[k_] * random_point_on_circle()
+
+    return {
+        "A": A,
+        "S": S,
+    }
+
+
 def processRectangleQuery1(query):
     phr, m, k, forceOrthogonal, normalizeScales, max_binsidelength = query
 
@@ -246,31 +269,6 @@ class UniqueBasesScheduler(object):
             self.queueNewWorkItem()
 
 
-def create_submatrixing_params(m, k, normalizeScales=True):
-    # Create a 3D projection. Then for each module, append k-3 columns with
-    # lengths U(0, maxlength) where maxlength is the longest of the first 3
-    # columns.
-
-    params = create_params(m, 3, orthogonal=True,
-                           normalizeScales=normalizeScales)
-
-    A = np.zeros((m,2,k))
-    A[:,:,:3] = params["A"]
-
-    for m_ in range(m):
-        maxlength = max(np.linalg.norm(A[m_,:,k_])
-                        for k_ in range(3))
-
-        for k_ in range(3, k):
-            length = np.random.uniform(0, maxlength)
-            A[m_,:,k_] = random_point_on_circle()*length
-
-    return {
-        "A": A[:,:,:k],
-        "S": params["S"],
-    }
-
-
 def getQuery(A, S, m, k, phase_resolution):
     A_ = A[:m, :, :k]
     sort_order = np.argsort(S[:m])[::-1]
@@ -365,9 +363,9 @@ class ReuseBasesScheduler(object):
 
     def queueNewWorkItem(self):
         if self.buildupBases:
-            resultDict = create_submatrixing_params(max(self.ms),
-                                                    int(math.ceil(max(self.ks))),
-                                                    self.normalizeScales)
+            resultDict = create_params2(max(self.ms),
+                                        int(math.ceil(max(self.ks))),
+                                        self.normalizeScales)
         else:
             resultDict = create_params(max(self.ms),
                                        int(math.ceil(max(self.ks))),
