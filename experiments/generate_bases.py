@@ -19,6 +19,10 @@
 # http://numenta.org/licenses/
 # ----------------------------------------------------------------------
 
+"""
+Generate and verify sets of grid cell parameters for high-dimensional experiments
+"""
+
 import argparse
 import math
 import multiprocessing
@@ -33,52 +37,22 @@ from scipy.stats import ortho_group
 from gridcodingrange import computeBinRectangle
 
 
-def create_bases(k, s):
-    assert(k>1)
-    B = np.zeros((k,k))
-    B[:2,:2] = np.array([
-        [1.,0.],
-        [0.,1.]
-    ])
-    for col in range(2,k):
-        B[ :, col] = np.random.randn(k)
-        B[ :, col] = B[ :, col]/np.linalg.norm(B[ :, col])
-
-    Q = ortho_group.rvs(k)
-    return np.dot(Q,s*B)
-
-
-def create_orthogonal_projection_base(k, s):
-    assert k > 1
-    B = np.eye(k)
-    Q = ortho_group.rvs(k)
-
-    return np.dot(Q,s*B)
-
-
 def random_point_on_circle():
     r = np.random.sample()*2.*np.pi
     return np.array([np.cos(r), np.sin(r)])
 
 
-def create_params(m, k, orthogonal, normalizeScales=True):
-    B = np.zeros((m,k,k))
+def create_orthogonal_params(m, k, normalizeScales=True):
+    if k == 1:
+        return create_params(m, k, normalizeScales)
+
     A = np.zeros((m,2,k))
     S = 1 + np.random.normal(size=m, scale=0.2)
-
     if normalizeScales:
         S /= np.mean(S)
 
     for m_ in range(m):
-        if k==1:
-            B[m_,0,0] = S[m_]*np.random.choice([-1.,1.])
-            A[m_] = np.dot(random_point_on_circle().reshape((2,1)), np.linalg.inv(B[m_]))
-        else:
-            if orthogonal:
-                B[m_] = create_orthogonal_projection_base(k, S[m_])
-            else:
-                B[m_] = create_bases(k, S[m_])
-            A[m_] = np.linalg.inv(B[m_])[:2]
+        A[m_] = (ortho_group.rvs(k) / S[m_])[:2]
 
     return {
         "A": A,
@@ -86,7 +60,7 @@ def create_params(m, k, orthogonal, normalizeScales=True):
     }
 
 
-def create_params2(m, k, normalizeScales=True):
+def create_params(m, k, normalizeScales=True):
     A = np.zeros((m,2,k))
 
     S = 1 + np.random.normal(size=m, scale=0.2)
@@ -109,58 +83,61 @@ def create_params2(m, k, normalizeScales=True):
     }
 
 
-def processRectangleQuery1(query):
-    phr, m, k, forceOrthogonal, normalizeScales, max_binsidelength = query
-
-    upperBound = 4.0
-    timeout = 60.0 * 10.0 # 10 minutes
+def testBasis(query):
+    A, S, phr = query
     resultResolution = 0.01
+    upperBound = 2048.0
+    timeout = 60.0 * 10.0 # 10 minutes
+
+    # Rearrange to make the algorithm faster.
+    sortOrder = np.argsort(S)[::-1]
+    A_ = A[sortOrder,:,:]
+
+    try:
+        rect = computeBinRectangle(A_, phr, resultResolution,
+                                   upperBound, timeout)
+        return np.asarray(rect, dtype="float")
+    except RuntimeError as e:
+        if e.message == "timeout":
+            print("Timed out on query {}".format(A.tolist()))
+            return None
+        else:
+            raise
+
+
+def findGoodBasis(query):
+    phr, m, k, orthogonal, normalizeScales, max_binsidelength = query
 
     numDiscardedTooBig = 0
     numDiscardedTimeout = 0
 
     while True:
-        expDict = create_params(m, int(math.ceil(k)), forceOrthogonal,
-                                normalizeScales)
+        if orthogonal:
+            expDict = create_orthogonal_params(m, int(math.ceil(k)), normalizeScales)
+        else:
+            expDict = create_params(m, int(math.ceil(k)), normalizeScales)
 
-        # Rearrange to make the algorithms faster.
-        sortOrder = np.argsort(expDict["S"])[::-1]
-        expDict["S"] = expDict["S"][sortOrder]
-        expDict["A"] = expDict["A"][sortOrder,:,:]
+        rect = testBasis((expDict["A"], expDict["S"], phr))
 
-        try:
-            rect = computeBinRectangle(expDict["A"], phr, resultResolution,
-                                       upperBound, timeout)
-            rect = np.asarray(rect, dtype="float")
+        if (len(rect) == 0 or
+            (max_binsidelength is not None and
+             np.any(rect >= max_binsidelength))):
+            numDiscardedTooBig += 1
+            continue
 
-            if (len(rect) == 0 or
-                (max_binsidelength is not None and
-                 np.any(rect >= max_binsidelength))):
-                numDiscardedTooBig += 1
-                continue
-
-            expDict["rect"] = rect
-            return (expDict, numDiscardedTooBig, numDiscardedTimeout)
-
-        except RuntimeError as e:
-            if e.message == "timeout":
-                print("Timed out on query {}".format(expDict["A"]))
-
-                numDiscardedTimeout += 1
-                continue
-            else:
-                raise
+        expDict["rect"] = rect
+        return (expDict, numDiscardedTooBig, numDiscardedTimeout)
 
 
 class UniqueBasesScheduler(object):
-    def __init__(self, folderpath, numTrials, ms, ks, phaseResolutions,
-                 allowOblique, normalizeScales, filtered):
+    def __init__(self, folderpath, numTrials, ms, ks, phrs,
+                 orthogonal, normalizeScales, filtered):
 
         self.folderpath = folderpath
         self.numTrials = numTrials
         self.ms = ms
         self.ks = ks
-        self.phaseResolutions = phaseResolutions
+        self.phrs = phrs
 
         self.failureCounter = 0
         self.successCounter = 0
@@ -169,10 +146,9 @@ class UniqueBasesScheduler(object):
         self.finishedEvent = threading.Event()
 
         max_binsidelength = (1.0 if filtered else None)
-        forceOrthogonal = not allowOblique
-        self.param_combinations = [(phr, m, k, forceOrthogonal, normalizeScales,
+        self.param_combinations = [(phr, m, k, orthogonal, normalizeScales,
                                     max_binsidelength)
-                                   for phr in phaseResolutions
+                                   for phr in phrs
                                    for m in ms
                                    for k in ks
                                    if 2*m >= k]
@@ -201,7 +177,7 @@ class UniqueBasesScheduler(object):
 
 
     def queueNewWorkItem(self):
-        self.pool.map_async(processRectangleQuery1, self.param_combinations,
+        self.pool.map_async(findGoodBasis, self.param_combinations,
                             callback=self.onWorkItemFinished)
 
 
@@ -209,15 +185,15 @@ class UniqueBasesScheduler(object):
         if self.successCounter == self.numTrials:
             return
 
-        discardedTooBig = np.full((len(self.phaseResolutions),
+        discardedTooBig = np.full((len(self.phrs),
                                    len(self.ms),
                                    len(self.ks)),
                                   0, dtype="int")
-        discardedTimeout = np.full((len(self.phaseResolutions),
+        discardedTimeout = np.full((len(self.phrs),
                                     len(self.ms),
                                     len(self.ks)),
                                    0, dtype="int")
-        binSidelengths = np.full((len(self.phaseResolutions),
+        binSidelengths = np.full((len(self.phrs),
                                   len(self.ms),
                                   len(self.ks)),
                                  np.nan, dtype="float")
@@ -234,13 +210,13 @@ class UniqueBasesScheduler(object):
             everyS[(phr, m, k)] = expDict["S"]
             everyRect[(phr, m, k)] = expDict["rect"]
 
-            idx = (self.phaseResolutions.index(phr), self.ms.index(m),
+            idx = (self.phrs.index(phr), self.ms.index(m),
                    self.ks.index(k))
             discardedTooBig[idx] += numDiscardedTooBig
             discardedTimeout[idx] += numDiscardedTimeout
 
         resultDict = {
-            "phase_resolutions": self.phaseResolutions,
+            "phase_resolutions": self.phrs,
             "ms": self.ms,
             "ks": self.ks,
             "discarded_too_big": discardedTooBig,
@@ -269,59 +245,15 @@ class UniqueBasesScheduler(object):
             self.queueNewWorkItem()
 
 
-def getQuery(A, S, m, k, phase_resolution):
-    A_ = A[:m, :, :k]
-    sort_order = np.argsort(S[:m])[::-1]
-    A_ = A_[sort_order, :, :]
-
-    return (A_, phase_resolution)
-
-
-def processRectangleQuery2(query):
-    A, phase_resolution = query
-    resultResolution = 0.01
-    upperBound = 2048.0
-    timeout = 60.0 * 10.0 # 10 minutes
-
-    try:
-        rect = computeBinRectangle(A, phase_resolution, resultResolution,
-                                     upperBound, timeout)
-        rect = np.asarray(rect, dtype="float")
-        if len(rect) == 0:
-            print("Couldn't find bin smaller than {} for query {}".format(
-                upperBound, A.tolist()))
-
-        return rect
-    except RuntimeError as e:
-        if e.message == "timeout":
-            print("Timed out on query {}".format(A.tolist()))
-            return None
-        else:
-            raise
-
-
-class IterableWithLen(object):
-    def __init__(self, iterable, length):
-        self.iterable = iterable
-        self.length = length
-
-    def __len__(self):
-        return self.length
-
-    def __iter__(self):
-        return self.iterable
-
-
 class ReuseBasesScheduler(object):
-    def __init__(self, folderpath, numTrials, ms, ks, phaseResolutions,
-                 normalizeScales, buildupBases, filtered):
+    def __init__(self, folderpath, numTrials, ms, ks, phrs,
+                 normalizeScales, filtered):
         self.folderpath = folderpath
         self.numTrials = numTrials
         self.ms = ms
         self.ks = ks
-        self.phaseResolutions = phaseResolutions
+        self.phrs = phrs
         self.normalizeScales = normalizeScales
-        self.buildupBases = buildupBases
 
         self.failureCounter = 0
         self.successCounter = 0
@@ -330,7 +262,7 @@ class ReuseBasesScheduler(object):
         self.finishedEvent = threading.Event()
 
         self.param_combinations = [(phr, m, k)
-                                   for phr in phaseResolutions
+                                   for phr in phrs
                                    for m in ms
                                    for k in ks
                                    if 2*m >= k]
@@ -362,29 +294,18 @@ class ReuseBasesScheduler(object):
 
 
     def queueNewWorkItem(self):
-        if self.buildupBases:
-            resultDict = create_params2(max(self.ms),
-                                        int(math.ceil(max(self.ks))),
-                                        self.normalizeScales)
-        else:
-            resultDict = create_params(max(self.ms),
-                                       int(math.ceil(max(self.ks))),
-                                       orthogonal=True,
-                                       normalizeScales=self.normalizeScales)
-        resultDict["phase_resolutions"] = self.phaseResolutions
+        resultDict = create_params(max(self.ms),
+                                   int(math.ceil(max(self.ks))),
+                                   self.normalizeScales)
+        resultDict["phase_resolutions"] = self.phrs
         resultDict["ms"] = self.ms
         resultDict["ks"] = self.ks
-
-        A = resultDict["A"]
-        S = resultDict["S"]
-
-        queries = (getQuery(A, S, m, int(math.ceil(k)), phr)
+        queries = ((resultDict["A"][:m,:,:int(math.ceil(k))],
+                    resultDict["S"][:m],
+                    phr)
                    for phr, m, k in self.param_combinations)
-        # map_async will convert this to a list if it can't get the length.
-        queries = IterableWithLen(queries, len(self.param_combinations))
-
         context = ContextForSingleMatrix(self, resultDict, self.max_binsidelength)
-        self.pool.map_async(processRectangleQuery2, queries, callback=context.onFinished)
+        self.pool.map_async(testBasis, queries, callback=context.onFinished)
 
 
     def handleFailure(self, resultDict):
@@ -465,7 +386,7 @@ if __name__ == "__main__":
     parser.add_argument("--normalizeScales", action="store_true")
     parser.add_argument("--filtered", action="store_true")
     parser.add_argument("--reuseBases", action="store_true")
-    parser.add_argument("--buildupBases", action="store_true")
+    parser.add_argument("--orthogonal", action="store_true")
 
     args = parser.parse_args()
 
@@ -480,14 +401,13 @@ if __name__ == "__main__":
         "numTrials": args.numTrials,
         "ms": args.m,
         "ks": args.k,
-        "phaseResolutions": args.phaseResolution,
+        "phrs": args.phaseResolution,
         "normalizeScales": args.normalizeScales,
         "filtered": args.filtered,
     }
 
     if args.reuseBases:
-        params["buildupBases"] = args.buildupBases
         ReuseBasesScheduler(**params).join()
     else:
-        params["allowOblique"] = args.allowOblique
+        params["orthogonal"] = args.orthogonal
         UniqueBasesScheduler(**params).join()
