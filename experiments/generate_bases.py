@@ -37,45 +37,29 @@ from scipy.stats import ortho_group
 from gridcodingrange import computeBinRectangle
 
 
-def random_point_on_circle():
-    r = np.random.sample()*2.*np.pi
-    return np.array([np.cos(r), np.sin(r)])
+def create_params(m, k, impose_scales=True, style="uniform"):
+    if style == "normal":
+        A = np.random.standard_normal((m,2,k))*0.5
 
+    elif style == "uniform":
+        A = np.random.uniform(size=(m,2,k)) - 0.5
 
-def create_orthogonal_params(m, k, normalizeScales=True):
-    if k == 1:
-        return create_params(m, k, normalizeScales)
+    elif style == "ortho":
+        A = ortho_group.rvs(2*m)[:,:k].reshape(m,2,k)
 
-    A = np.zeros((m,2,k))
-    S = 1 + np.random.normal(size=m, scale=0.2)
-    if normalizeScales:
+    # Normalize A so that the mean column vector length is 1.
+    S_inv = np.mean(np.linalg.norm(A, axis=1), axis=1)
+    correction = np.mean(S_inv)
+    S_inv /= correction
+    A /= correction
+
+    if impose_scales:
+        S = 1 + np.random.normal(size=m, scale=0.2)
         S /= np.mean(S)
-
-    for m_ in range(m):
-        A[m_] = (ortho_group.rvs(k) / S[m_])[:2]
-
-    return {
-        "A": A,
-        "S": S,
-    }
-
-
-def create_params(m, k, normalizeScales=True):
-    A = np.zeros((m,2,k))
-
-    S = 1 + np.random.normal(size=m, scale=0.2)
-    if normalizeScales:
-        S /= np.mean(S)
-
-    for m_ in range(m):
-        # Choose a set of column vector lengths with mean length 1/scale
-        s_ = S[m_]
-        lengths = np.random.uniform(size=k)
-        lengths /= np.mean(lengths)
-        lengths /= S[m_]
-
-        for k_ in range(k):
-            A[m_,:,k_] = lengths[k_] * random_point_on_circle()
+        for m_ in range(m):
+            A[m_] /= S[m_]
+    else:
+        S = 1 / S_inv
 
     return {
         "A": A,
@@ -106,16 +90,14 @@ def testBasis(query):
 
 
 def findGoodBasis(query):
-    phr, m, k, orthogonal, normalizeScales, max_binsidelength = query
+    phr, m, k, impose_scales, param_style, max_binsidelength = query
 
     numDiscardedTooBig = 0
     numDiscardedTimeout = 0
 
     while True:
-        if orthogonal:
-            expDict = create_orthogonal_params(m, int(math.ceil(k)), normalizeScales)
-        else:
-            expDict = create_params(m, int(math.ceil(k)), normalizeScales)
+        expDict = create_params(m, int(math.ceil(k)), impose_scales,
+                                param_style)
 
         rect = testBasis((expDict["A"], expDict["S"], phr))
 
@@ -130,14 +112,15 @@ def findGoodBasis(query):
 
 
 class UniqueBasesScheduler(object):
-    def __init__(self, folderpath, numTrials, ms, ks, phrs,
-                 orthogonal, normalizeScales, filtered):
+    def __init__(self, folderpath, num_trials, ms, ks, phrs, impose_scales,
+                 filtered, param_style):
 
         self.folderpath = folderpath
-        self.numTrials = numTrials
+        self.num_trials = num_trials
         self.ms = ms
         self.ks = ks
         self.phrs = phrs
+        self.param_style = param_style
 
         self.failureCounter = 0
         self.successCounter = 0
@@ -146,7 +129,7 @@ class UniqueBasesScheduler(object):
         self.finishedEvent = threading.Event()
 
         max_binsidelength = (1.0 if filtered else None)
-        self.param_combinations = [(phr, m, k, orthogonal, normalizeScales,
+        self.param_combinations = [(phr, m, k, impose_scales, param_style,
                                     max_binsidelength)
                                    for phr in phrs
                                    for m in ms
@@ -182,7 +165,7 @@ class UniqueBasesScheduler(object):
 
 
     def onWorkItemFinished(self, results):
-        if self.successCounter == self.numTrials:
+        if self.successCounter == self.num_trials:
             return
 
         discardedTooBig = np.full((len(self.phrs),
@@ -236,24 +219,25 @@ class UniqueBasesScheduler(object):
         self.successCounter += 1
         with open(filepath, "wb") as fout:
             print("Saving {} ({} remaining)".format(
-                filepath, self.numTrials - self.successCounter))
+                filepath, self.num_trials - self.successCounter))
             pickle.dump(resultDict, fout)
 
-        if self.successCounter == self.numTrials:
+        if self.successCounter == self.num_trials:
             self.finishedEvent.set()
         else:
             self.queueNewWorkItem()
 
 
 class ReuseBasesScheduler(object):
-    def __init__(self, folderpath, numTrials, ms, ks, phrs,
-                 normalizeScales, filtered):
+    def __init__(self, folderpath, num_trials, ms, ks, phrs,
+                 impose_scales, filtered, param_style):
         self.folderpath = folderpath
-        self.numTrials = numTrials
+        self.num_trials = num_trials
         self.ms = ms
         self.ks = ks
         self.phrs = phrs
-        self.normalizeScales = normalizeScales
+        self.impose_scales = impose_scales
+        self.param_style = param_style
 
         self.failureCounter = 0
         self.successCounter = 0
@@ -296,7 +280,8 @@ class ReuseBasesScheduler(object):
     def queueNewWorkItem(self):
         resultDict = create_params(max(self.ms),
                                    int(math.ceil(max(self.ks))),
-                                   self.normalizeScales)
+                                   self.impose_scales,
+                                   self.param_style)
         resultDict["phase_resolutions"] = self.phrs
         resultDict["ms"] = self.ms
         resultDict["ks"] = self.ks
@@ -320,14 +305,14 @@ class ReuseBasesScheduler(object):
 
         with open(filepath, "wb") as fout:
             print("Saving {} ({} remaining)".format(
-                filepath, self.numTrials - self.successCounter))
+                filepath, self.num_trials - self.successCounter))
             pickle.dump(resultDict, fout)
 
         self.queueNewWorkItem()
 
 
     def handleSuccess(self, resultDict, results):
-        if self.successCounter == self.numTrials:
+        if self.successCounter == self.num_trials:
             return
 
         # Insert results into dict
@@ -346,10 +331,10 @@ class ReuseBasesScheduler(object):
         self.successCounter += 1
         with open(filepath, "wb") as fout:
             print("Saving {} ({} remaining)".format(
-                filepath, self.numTrials - self.successCounter))
+                filepath, self.num_trials - self.successCounter))
             pickle.dump(resultDict, fout)
 
-        if self.successCounter == self.numTrials:
+        if self.successCounter == self.num_trials:
             self.finishedEvent.set()
         else:
             self.queueNewWorkItem()
@@ -382,11 +367,12 @@ if __name__ == "__main__":
     parser.add_argument("--m", type=int, required=True, nargs="+")
     parser.add_argument("--k", type=float, required=True, nargs="+")
     parser.add_argument("--phaseResolution", type=float, default=[0.2], nargs="+")
+    parser.add_argument("--paramStyle", type=str, default="uniform",
+                        choices=["normal", "uniform", "ortho"])
     parser.add_argument("--allowOblique", action="store_true")
-    parser.add_argument("--normalizeScales", action="store_true")
+    parser.add_argument("--imposeScales", action="store_true")
     parser.add_argument("--filtered", action="store_true")
     parser.add_argument("--reuseBases", action="store_true")
-    parser.add_argument("--orthogonal", action="store_true")
 
     args = parser.parse_args()
 
@@ -398,16 +384,16 @@ if __name__ == "__main__":
 
     params = {
         "folderpath": folderpath,
-        "numTrials": args.numTrials,
+        "num_trials": args.numTrials,
         "ms": args.m,
         "ks": args.k,
         "phrs": args.phaseResolution,
-        "normalizeScales": args.normalizeScales,
+        "impose_scales": args.imposeScales,
         "filtered": args.filtered,
+        "param_style": args.paramStyle,
     }
 
     if args.reuseBases:
         ReuseBasesScheduler(**params).join()
     else:
-        params["orthogonal"] = args.orthogonal
         UniqueBasesScheduler(**params).join()
