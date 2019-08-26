@@ -37,7 +37,7 @@ from scipy.stats import ortho_group
 from gridcodingrange import computeBinRectangle
 
 
-def create_params(m, k, impose_scales=True, style="uniform"):
+def create_params(m, k, impose_scales=True, style="uniform", hard_impose=False):
     if style == "normal":
         A = np.random.standard_normal((m,2,k))*0.5
 
@@ -57,8 +57,14 @@ def create_params(m, k, impose_scales=True, style="uniform"):
         S = 1 + np.random.normal(size=m, scale=0.2)
         S /= np.mean(S)
 
-        new_column_lengths = 1 / S
-        rescale = new_column_lengths / column_lengths
+        if hard_impose:
+            # Set the sample mean length for this particular sample.
+            new_column_lengths = 1 / S
+            rescale = new_column_lengths / column_lengths
+        else:
+            # Set the expected length.
+            rescale = 1 / S
+
         for m_ in range(m):
             A[m_] *= rescale[m_]
     else:
