@@ -37,7 +37,7 @@ from scipy.stats import ortho_group
 from gridcodingrange import computeBinRectangle
 
 
-def create_params(m, k, impose_scales=True, style="uniform", hard_impose=False):
+def create_params(m, k, impose_scales=True, hard_impose=False, style="uniform"):
     if style == "normal":
         A = np.random.standard_normal((m,2,k))*0.5
 
@@ -99,14 +99,15 @@ def testBasis(query):
 
 
 def findGoodBasis(query):
-    phr, m, k, impose_scales, param_style, max_binsidelength = query
+    (phr, m, k, impose_scales, hard_impose, param_style,
+     max_binsidelength) = query
 
     numDiscardedTooBig = 0
     numDiscardedTimeout = 0
 
     while True:
         expDict = create_params(m, int(math.ceil(k)), impose_scales,
-                                param_style)
+                                hard_impose, param_style)
 
         rect = testBasis((expDict["A"], expDict["S"], phr))
 
@@ -122,7 +123,7 @@ def findGoodBasis(query):
 
 class UniqueBasesScheduler(object):
     def __init__(self, folderpath, num_trials, ms, ks, phrs, impose_scales,
-                 filtered, param_style):
+                 hard_impose, filtered, param_style):
 
         self.folderpath = folderpath
         self.num_trials = num_trials
@@ -138,8 +139,8 @@ class UniqueBasesScheduler(object):
         self.finishedEvent = threading.Event()
 
         max_binsidelength = (1.0 if filtered else None)
-        self.param_combinations = [(phr, m, k, impose_scales, param_style,
-                                    max_binsidelength)
+        self.param_combinations = [(phr, m, k, impose_scales, hard_impose,
+                                    param_style, max_binsidelength)
                                    for phr in phrs
                                    for m in ms
                                    for k in ks
@@ -195,7 +196,7 @@ class UniqueBasesScheduler(object):
         everyRect = {}
 
         for params, result in zip(self.param_combinations, results):
-            phr, m, k, _, _, _ = params
+            phr, m, k, _, _, _, _ = params
             expDict, numDiscardedTooBig, numDiscardedTimeout = result
 
             everyA[(phr, m, k)] = expDict["A"]
@@ -239,13 +240,14 @@ class UniqueBasesScheduler(object):
 
 class ReuseBasesScheduler(object):
     def __init__(self, folderpath, num_trials, ms, ks, phrs,
-                 impose_scales, filtered, param_style):
+                 impose_scales, hard_impose, filtered, param_style):
         self.folderpath = folderpath
         self.num_trials = num_trials
         self.ms = ms
         self.ks = ks
         self.phrs = phrs
         self.impose_scales = impose_scales
+        self.hard_impose = hard_impose
         self.param_style = param_style
 
         self.failureCounter = 0
@@ -290,6 +292,7 @@ class ReuseBasesScheduler(object):
         resultDict = create_params(max(self.ms),
                                    int(math.ceil(max(self.ks))),
                                    self.impose_scales,
+                                   self.hard_impose,
                                    self.param_style)
         resultDict["phase_resolutions"] = self.phrs
         resultDict["ms"] = self.ms
@@ -380,6 +383,7 @@ if __name__ == "__main__":
                         choices=["normal", "uniform", "ortho"])
     parser.add_argument("--allowOblique", action="store_true")
     parser.add_argument("--imposeScales", action="store_true")
+    parser.add_argument("--hardImpose", action="store_true")
     parser.add_argument("--filtered", action="store_true")
     parser.add_argument("--reuseBases", action="store_true")
 
@@ -398,6 +402,7 @@ if __name__ == "__main__":
         "ks": args.k,
         "phrs": args.phaseResolution,
         "impose_scales": args.imposeScales,
+        "hard_impose": args.hardImpose,
         "filtered": args.filtered,
         "param_style": args.paramStyle,
     }
