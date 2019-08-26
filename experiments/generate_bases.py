@@ -48,18 +48,21 @@ def create_params(m, k, impose_scales=True, style="uniform"):
         A = ortho_group.rvs(2*m)[:,:k].reshape(m,2,k)
 
     # Normalize A so that the mean column vector length is 1.
-    S_inv = np.mean(np.linalg.norm(A, axis=1), axis=1)
-    correction = np.mean(S_inv)
-    S_inv /= correction
+    column_lengths = np.mean(np.linalg.norm(A, axis=1), axis=1)
+    correction = np.mean(column_lengths)
+    column_lengths /= correction
     A /= correction
 
     if impose_scales:
         S = 1 + np.random.normal(size=m, scale=0.2)
         S /= np.mean(S)
+
+        new_column_lengths = 1 / S
+        rescale = new_column_lengths / column_lengths
         for m_ in range(m):
-            A[m_] /= S[m_]
+            A[m_] *= rescale[m_]
     else:
-        S = 1 / S_inv
+        S = 1 / column_lengths
 
     return {
         "A": A,
